@@ -18,6 +18,7 @@ package ethash
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io/ioutil"
 	"math/big"
 	"os"
@@ -101,7 +102,9 @@ func TestCacheGeneration(t *testing.T) {
 		generateCache(cache, tt.epoch, seedHash(tt.epoch*epochLength+1))
 
 		want := make([]uint32, tt.size/4)
-		prepare(want, tt.cache)
+		for i := 0; i < len(want); i++ {
+			want[i] = binary.LittleEndian.Uint32(tt.cache[i*4:])
+		}
 
 		if !reflect.DeepEqual(cache, want) {
 			t.Errorf("cache %d: content mismatch: have %x, want %x", i, cache, want)
@@ -644,7 +647,9 @@ func TestDatasetGeneration(t *testing.T) {
 		generateDataset(dataset, tt.epoch, cache)
 
 		want := make([]uint32, tt.datasetSize/4)
-		prepare(want, tt.dataset)
+		for i := 0; i < len(want); i++ {
+			want[i] = binary.LittleEndian.Uint32(tt.dataset[i*4:])
+		}
 
 		if !reflect.DeepEqual(dataset, want) {
 			t.Errorf("dataset %d: content mismatch: have %x, want %x", i, dataset, want)

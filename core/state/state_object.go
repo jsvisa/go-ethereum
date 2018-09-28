@@ -159,6 +159,11 @@ func (c *stateObject) getTrie(db Database) Trie {
 	return c.trie
 }
 
+// GetRoot retrieves a storage trie root
+func (c *stateObject) GetRoot() common.Hash {
+	return c.data.Root
+}
+
 // GetState retrieves a value from the account storage trie.
 func (self *stateObject) GetState(db Database, key common.Hash) common.Hash {
 	// If we have a dirty value for this state entry, return it

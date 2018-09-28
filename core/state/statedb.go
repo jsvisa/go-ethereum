@@ -198,6 +198,15 @@ func (self *StateDB) Empty(addr common.Address) bool {
 	return so == nil || so.empty()
 }
 
+// GetRoot retrieve the storage trie root at the given address
+func (self *StateDB) GetRoot(addr common.Address) common.Hash {
+	stateObject := self.getStateObject(addr)
+	if stateObject != nil {
+		return stateObject.GetRoot()
+	}
+	return emptyState
+}
+
 // Retrieve the balance from the given address or 0 if object not found
 func (self *StateDB) GetBalance(addr common.Address) *big.Int {
 	stateObject := self.getStateObject(addr)

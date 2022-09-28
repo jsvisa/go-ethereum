@@ -30,8 +30,6 @@ import (
 	"github.com/ethereum/go-ethereum/eth/tracers"
 )
 
-//go:generate go run github.com/fjl/gencodec -type account -field-override accountMarshaling -out gen_account_json.go
-
 func init() {
 	register("prestateTracer", newPrestateTracer)
 }
@@ -39,10 +37,10 @@ func init() {
 type state = map[common.Address]*account
 
 type account struct {
-	Balance *big.Int                    `json:"balance,omitempty"`
-	Nonce   uint64                      `json:"nonce,omitempty"`
-	Code    []byte                      `json:"code,omitempty"`
-	Storage map[common.Hash]common.Hash `json:"storage,omitempty"`
+	Balance string                      `json:"balance"`
+	Nonce   uint64                      `json:"nonce"`
+	Code    []byte                      `json:"code"`
+	Storage map[common.Hash]common.Hash `json:"storage"`
 }
 
 type accountMarshaling struct {
@@ -97,16 +95,16 @@ func (t *prestateTracer) CaptureStart(env *vm.EVM, from common.Address, to commo
 	t.lookupAccount(env.Context.Coinbase)
 
 	// The recipient balance includes the value transferred.
-	toBal := new(big.Int).Sub(t.pre[to].Balance, value)
-	t.pre[to].Balance = toBal
+	toBal := new(big.Int).Sub(hexutil.MustDecodeBig(t.pre[to].Balance), value)
+	t.pre[to].Balance = bigToHex(toBal)
 
 	// The sender balance is after reducing: value and gasLimit.
 	// We need to re-add them to get the pre-tx balance.
-	fromBal := t.pre[from].Balance
+	fromBal := hexutil.MustDecodeBig(t.pre[from].Balance)
 	gasPrice := env.TxContext.GasPrice
 	consumedGas := new(big.Int).Mul(gasPrice, new(big.Int).SetUint64(t.gasLimit))
 	fromBal.Add(fromBal, new(big.Int).Add(value, consumedGas))
-	t.pre[from].Balance = fromBal
+	t.pre[from].Balance = bigToHex(fromBal)
 	t.pre[from].Nonce--
 
 	if create && t.config.DiffMode {
@@ -187,11 +185,11 @@ func (t *prestateTracer) CaptureTxEnd(restGas uint64) {
 		}
 		modified := false
 		postAccount := &account{Storage: make(map[common.Hash]common.Hash)}
-		newBalance := t.env.StateDB.GetBalance(addr)
+		newBalance := bigToHex(t.env.StateDB.GetBalance(addr))
 		newNonce := t.env.StateDB.GetNonce(addr)
 		newCode := t.env.StateDB.GetCode(addr)
 
-		if newBalance.Cmp(t.pre[addr].Balance) != 0 {
+		if newBalance != t.pre[addr].Balance {
 			modified = true
 			postAccount.Balance = newBalance
 		}
@@ -229,7 +227,7 @@ func (t *prestateTracer) CaptureTxEnd(restGas uint64) {
 	// the new created contracts' prestate were empty, so delete them
 	for a := range t.created {
 		// the created contract maybe exists in statedb before the creating tx
-		if s := t.pre[a]; s.Balance.Cmp(big.NewInt(0)) == 0 && len(s.Storage) == 0 && len(s.Code) == 0 {
+		if s := t.pre[a]; s.Balance != "0x" && len(s.Storage) == 0 && len(s.Code) == 0 {
 			delete(t.pre, a)
 		}
 	}
@@ -268,7 +266,7 @@ func (t *prestateTracer) lookupAccount(addr common.Address) {
 	}
 
 	t.pre[addr] = &account{
-		Balance: t.env.StateDB.GetBalance(addr),
+		Balance: bigToHex(t.env.StateDB.GetBalance(addr)),
 		Nonce:   t.env.StateDB.GetNonce(addr),
 		Code:    t.env.StateDB.GetCode(addr),
 		Storage: make(map[common.Hash]common.Hash),
@@ -283,4 +281,11 @@ func (t *prestateTracer) lookupStorage(addr common.Address, key common.Hash) {
 		return
 	}
 	t.pre[addr].Storage[key] = t.env.StateDB.GetState(addr, key)
+}
+
+func bigToHex(n *big.Int) string {
+	if n == nil {
+		return ""
+	}
+	return "0x" + n.Text(16)
 }

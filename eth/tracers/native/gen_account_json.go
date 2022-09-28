@@ -21,7 +21,9 @@ func (a account) MarshalJSON() ([]byte, error) {
 		Storage map[common.Hash]common.Hash `json:"storage"`
 	}
 	var enc account
-	enc.Balance = (*hexutil.Big)(a.Balance)
+    balance := new(big.Int)
+    balance.SetString(a.Balance[2:], 16)
+	enc.Balance = (*hexutil.Big)(balance)
 	enc.Nonce = a.Nonce
 	enc.Code = a.Code
 	enc.Storage = a.Storage
@@ -41,7 +43,7 @@ func (a *account) UnmarshalJSON(input []byte) error {
 		return err
 	}
 	if dec.Balance != nil {
-		a.Balance = (*big.Int)(dec.Balance)
+		a.Balance = bigToHex((*big.Int)(dec.Balance))
 	}
 	if dec.Nonce != nil {
 		a.Nonce = *dec.Nonce

@@ -741,6 +741,12 @@ func (n *Node) OpenDatabaseWithFreezer(name string, cache, handles int, ancient 
 	if n.config.DataDir == "" {
 		db = rawdb.NewMemoryDatabase()
 	} else {
+		noFreeze := false
+		// FIXME: use environment
+		if v := os.Getenv("GO_ETHEREUM_NO_FREEZE"); v == "nofreeze" {
+			log.Info("OpenDatabase without freeze")
+			noFreeze = true
+		}
 		db, err = rawdb.Open(rawdb.OpenOptions{
 			Type:              n.config.DBEngine,
 			Directory:         n.ResolvePath(name),
@@ -749,6 +755,7 @@ func (n *Node) OpenDatabaseWithFreezer(name string, cache, handles int, ancient 
 			Cache:             cache,
 			Handles:           handles,
 			ReadOnly:          readonly,
+			NoFreeze:          noFreeze,
 		})
 	}
 

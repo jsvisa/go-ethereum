@@ -18,6 +18,7 @@ package rawdb
 
 import (
 	"encoding/json"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -185,5 +186,53 @@ func ReadTransitionStatus(db ethdb.KeyValueReader) []byte {
 func WriteTransitionStatus(db ethdb.KeyValueWriter, data []byte) {
 	if err := db.Put(transitionStatusKey, data); err != nil {
 		log.Crit("Failed to store the eth2 transition status", "err", err)
+	}
+}
+
+// ReadOffsetOfCurrentAncientFreezer return prune block start
+func ReadOffsetOfCurrentAncientFreezer(db ethdb.KeyValueReader) uint64 {
+	offset, _ := db.Get(offsetOfCurrentAncientFreezerKey)
+	if offset == nil {
+		return 0
+	}
+	return new(big.Int).SetBytes(offset).Uint64()
+}
+
+// WriteOffsetOfCurrentAncientFreezer write prune block start
+func WriteOffsetOfCurrentAncientFreezer(db ethdb.KeyValueWriter, offset uint64) {
+	if err := db.Put(offsetOfCurrentAncientFreezerKey, new(big.Int).SetUint64(offset).Bytes()); err != nil {
+		log.Crit("Failed to store the current offset of ancient", "err", err)
+	}
+}
+
+// ReadFrozenOfAncientFreezer return freezer block number
+func ReadFrozenOfAncientFreezer(db ethdb.KeyValueReader) uint64 {
+	fozen, _ := db.Get(frozenOfAncientDBKey)
+	if fozen == nil {
+		return 0
+	}
+	return new(big.Int).SetBytes(fozen).Uint64()
+}
+
+// WriteFrozenOfAncientFreezer write freezer block number
+func WriteFrozenOfAncientFreezer(db ethdb.KeyValueWriter, frozen uint64) {
+	if err := db.Put(frozenOfAncientDBKey, new(big.Int).SetUint64(frozen).Bytes()); err != nil {
+		log.Crit("Failed to store the ancient frozen number", "err", err)
+	}
+}
+
+// ReadSafePointBlockNumber return the number of block that roothash save to disk
+func ReadSafePointBlockNumber(db ethdb.KeyValueReader) uint64 {
+	num, _ := db.Get(lastSafePointBlockKey)
+	if num == nil {
+		return 0
+	}
+	return new(big.Int).SetBytes(num).Uint64()
+}
+
+// WriteSafePointBlockNumber write the number of block that roothash save to disk
+func WriteSafePointBlockNumber(db ethdb.KeyValueWriter, number uint64) {
+	if err := db.Put(lastSafePointBlockKey, new(big.Int).SetUint64(number).Bytes()); err != nil {
+		log.Crit("Failed to store safe point of block number", "err", err)
 	}
 }

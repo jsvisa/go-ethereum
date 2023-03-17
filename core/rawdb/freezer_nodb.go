@@ -324,7 +324,7 @@ func (f *nodbFreezer) AncientRange(kind string, start, count, maxBytes uint64) (
 }
 
 func (f *nodbFreezer) ModifyAncients(func(ethdb.AncientWriteOp) error) (int64, error) {
-	return 0, errNotSupported
+	return 0, nil
 }
 
 func (f *nodbFreezer) MigrateTable(kind string, convert convertLegacyFn) error {

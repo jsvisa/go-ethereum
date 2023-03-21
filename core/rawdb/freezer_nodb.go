@@ -209,25 +209,10 @@ func (f *nodbFreezer) freeze() {
 			continue
 		}
 
-		stableStabeNumber := ReadSafePointBlockNumber(nfdb)
-		switch {
-		case stableStabeNumber < 128:
-			log.Debug("Stable state block not old enough", "number", stableStabeNumber)
-			backoff = true
-			continue
-
-		case stableStabeNumber > *number:
-			log.Warn("Stable state block biger current full block", "number", stableStabeNumber, "number", *number)
-			backoff = true
-			continue
-		}
-		stableStabeNumber -= 128
-
 		// Seems we have data ready to be frozen, process in usable batches
 		limit := *number - threshold
-		if limit > stableStabeNumber {
-			limit = stableStabeNumber
-		}
+		// keep more data
+		limit -= 1024
 
 		if limit < f.frozen {
 			log.Debug("Stable state block has prune", "limit", limit, "frozen", f.frozen)

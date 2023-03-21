@@ -204,19 +204,3 @@ func WriteFrozenOfAncientFreezer(db ethdb.KeyValueWriter, frozen uint64) {
 		log.Crit("Failed to store the ancient frozen number", "err", err)
 	}
 }
-
-// ReadSafePointBlockNumber return the number of block that roothash save to disk
-func ReadSafePointBlockNumber(db ethdb.KeyValueReader) uint64 {
-	num, _ := db.Get(lastSafePointBlockKey)
-	if num == nil {
-		return 0
-	}
-	return new(big.Int).SetBytes(num).Uint64()
-}
-
-// WriteSafePointBlockNumber write the number of block that roothash save to disk
-func WriteSafePointBlockNumber(db ethdb.KeyValueWriter, number uint64) {
-	if err := db.Put(lastSafePointBlockKey, new(big.Int).SetUint64(number).Bytes()); err != nil {
-		log.Crit("Failed to store safe point of block number", "err", err)
-	}
-}

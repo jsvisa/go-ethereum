@@ -406,8 +406,6 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		bc.snaps, _ = snapshot.New(snapconfig, bc.db, bc.triedb, head.Root)
 	}
 
-	// write safe point block number
-	rawdb.WriteSafePointBlockNumber(bc.db, bc.CurrentBlock().Number.Uint64())
 	// Start future block processor.
 	bc.wg.Add(1)
 	go bc.updateFutureBlocks()
@@ -968,8 +966,6 @@ func (bc *BlockChain) Stop() {
 				log.Info("Writing cached state to disk", "block", recent.Number(), "hash", recent.Hash(), "root", recent.Root())
 				if err := triedb.Commit(recent.Root(), true); err != nil {
 					log.Error("Failed to commit recent state trie", "err", err)
-				} else {
-					rawdb.WriteSafePointBlockNumber(bc.db, recent.Number().Uint64())
 				}
 			}
 		}
@@ -977,8 +973,6 @@ func (bc *BlockChain) Stop() {
 			log.Info("Writing snapshot state to disk", "root", snapBase)
 			if err := triedb.Commit(snapBase, true); err != nil {
 				log.Error("Failed to commit recent state trie", "err", err)
-			} else {
-				rawdb.WriteSafePointBlockNumber(bc.db, bc.CurrentBlock().Number.Uint64())
 			}
 		}
 		for !bc.triegc.Empty() {
@@ -1404,7 +1398,6 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 			}
 			// Flush an entire trie and restart the counters
 			bc.triedb.Commit(header.Root, true)
-			rawdb.WriteSafePointBlockNumber(bc.db, chosen)
 			bc.lastWrite = chosen
 			bc.gcproc = 0
 		}

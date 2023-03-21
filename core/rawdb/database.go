@@ -199,7 +199,7 @@ func resolveChainFreezerDir(ancient string) string {
 // where the chain freezer can be opened.
 func NewDatabaseWithFreezer(db ethdb.KeyValueStore, ancient string, namespace string, readonly bool, noFreeze bool) (ethdb.Database, error) {
 	if noFreeze && !readonly {
-		offset := ReadOffsetOfCurrentAncientFreezer(db)
+		offset := ReadFrozenOfAncientFreezer(db)
 		frdb, err := newNodbFreezer(ancient, db, offset)
 		if err != nil {
 			return nil, err

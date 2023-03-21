@@ -84,9 +84,6 @@ var (
 	// transitionStatusKey tracks the eth2 transition status.
 	transitionStatusKey = []byte("eth2-transition")
 
-	// offsetOfCurrentAncientFreezerKey tracks the offset of new updated ancientDB.
-	offsetOfCurrentAncientFreezerKey = []byte("OffsetOfCurrentAncientFreezer")
-
 	// frozenOfAncientDBKey tracks the block number for ancientDB to save.
 	frozenOfAncientDBKey = []byte("FrozenOfAncientDB")
 

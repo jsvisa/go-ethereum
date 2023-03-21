@@ -74,7 +74,7 @@ func newNodbFreezer(datadir string, db ethdb.KeyValueStore, offset uint64) (*nod
 	return freezer, nil
 }
 
-// repair init frozen , compatible disk-ancientdb and pruner-block-tool.
+// repair init frozen , compatible disk-ancientdb
 func (f *nodbFreezer) repair(datadir string) error {
 	offset := atomic.LoadUint64(&f.frozen)
 	// compatible freezer
@@ -136,16 +136,6 @@ func (f *nodbFreezer) Ancients() (uint64, error) {
 	return atomic.LoadUint64(&f.frozen), nil
 }
 
-// ItemAmountInAncient returns the actual length of current ancientDB, return 0.
-func (f *nodbFreezer) ItemAmountInAncient() (uint64, error) {
-	return 0, nil
-}
-
-// AncientOffSet returns the offset of current ancientDB, offset == frozen.
-func (f *nodbFreezer) AncientOffSet() uint64 {
-	return atomic.LoadUint64(&f.frozen)
-}
-
 // Tail returns the number of first stored item in the freezer.
 func (f *nodbFreezer) Tail() (uint64, error) {
 	return atomic.LoadUint64(&f.tail), nil
@@ -194,8 +184,6 @@ func (f *nodbFreezer) TruncateTail(tail uint64) error {
 // Sync flushes meta data tables to disk.
 func (f *nodbFreezer) Sync() error {
 	WriteFrozenOfAncientFreezer(f.db, atomic.LoadUint64(&f.frozen))
-	// compatible offline prune blocks tool
-	WriteOffsetOfCurrentAncientFreezer(f.db, atomic.LoadUint64(&f.frozen))
 	return nil
 }
 

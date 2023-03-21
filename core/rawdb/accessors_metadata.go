@@ -189,22 +189,6 @@ func WriteTransitionStatus(db ethdb.KeyValueWriter, data []byte) {
 	}
 }
 
-// ReadOffsetOfCurrentAncientFreezer return prune block start
-func ReadOffsetOfCurrentAncientFreezer(db ethdb.KeyValueReader) uint64 {
-	offset, _ := db.Get(offsetOfCurrentAncientFreezerKey)
-	if offset == nil {
-		return 0
-	}
-	return new(big.Int).SetBytes(offset).Uint64()
-}
-
-// WriteOffsetOfCurrentAncientFreezer write prune block start
-func WriteOffsetOfCurrentAncientFreezer(db ethdb.KeyValueWriter, offset uint64) {
-	if err := db.Put(offsetOfCurrentAncientFreezerKey, new(big.Int).SetUint64(offset).Bytes()); err != nil {
-		log.Crit("Failed to store the current offset of ancient", "err", err)
-	}
-}
-
 // ReadFrozenOfAncientFreezer return freezer block number
 func ReadFrozenOfAncientFreezer(db ethdb.KeyValueReader) uint64 {
 	fozen, _ := db.Get(frozenOfAncientDBKey)

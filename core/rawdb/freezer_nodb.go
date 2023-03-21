@@ -141,8 +141,8 @@ func (f *nodbFreezer) ItemAmountInAncient() (uint64, error) {
 	return 0, nil
 }
 
-// AncientOffset returns the offset of current ancientDB, offset == frozen.
-func (f *nodbFreezer) AncientOffset() uint64 {
+// AncientOffSet returns the offset of current ancientDB, offset == frozen.
+func (f *nodbFreezer) AncientOffSet() uint64 {
 	return atomic.LoadUint64(&f.frozen)
 }
 

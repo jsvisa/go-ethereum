@@ -212,11 +212,6 @@ func (f *Freezer) Ancients() (uint64, error) {
 	return f.frozen.Load(), nil
 }
 
-// AncientOffset returns the offset of current ancientDB.
-func (f *Freezer) AncientOffset() uint64 {
-	return 0
-}
-
 // Tail returns the number of first stored item in the freezer.
 func (f *Freezer) Tail() (uint64, error) {
 	return f.tail.Load(), nil

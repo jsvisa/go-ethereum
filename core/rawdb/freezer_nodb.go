@@ -2,7 +2,6 @@ package rawdb
 
 import (
 	"errors"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -61,10 +60,6 @@ func newNodbFreezer(datadir string, db ethdb.KeyValueStore, offset uint64) (*nod
 		quit:         make(chan struct{}),
 	}
 
-	if err := freezer.repair(datadir); err != nil {
-		return nil, err
-	}
-
 	// delete ancient dir
 	if err := os.RemoveAll(datadir); err != nil && !os.IsNotExist(err) {
 		log.Warn("remove the ancient dir failed.", "path", datadir, "error", err)
@@ -72,36 +67,6 @@ func newNodbFreezer(datadir string, db ethdb.KeyValueStore, offset uint64) (*nod
 	}
 	log.Info("Opened ancientdb with nodata mode", "database", datadir, "frozen", freezer.frozen)
 	return freezer, nil
-}
-
-// repair init frozen , compatible disk-ancientdb
-func (f *nodbFreezer) repair(datadir string) error {
-	offset := atomic.LoadUint64(&f.frozen)
-	// compatible freezer
-	min := uint64(math.MaxUint64)
-	for name, disableSnappy := range chainFreezerNoSnappy {
-		table, err := newFreezerTable(datadir, name, disableSnappy, false)
-		if err != nil {
-			return err
-		}
-		items := atomic.LoadUint64(&table.items)
-		if min > items {
-			min = items
-		}
-		table.Close()
-	}
-	log.Info("Read ancientdb item counts", "items", min)
-	offset += min
-
-	if frozen := ReadFrozenOfAncientFreezer(f.db); frozen > offset {
-		offset = frozen
-	}
-
-	atomic.StoreUint64(&f.frozen, offset)
-	if err := f.Sync(); err != nil {
-		return nil
-	}
-	return nil
 }
 
 // Close terminates the chain prunedfreezer.

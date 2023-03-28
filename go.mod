@@ -54,11 +54,12 @@ require (
 	github.com/protolambda/bls12-381-util v0.1.0
 	github.com/protolambda/zrnt v0.32.2
 	github.com/protolambda/ztyp v0.2.2
+	github.com/redis/go-redis/v9 v9.7.0
 	github.com/rs/cors v1.7.0
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible
 	github.com/status-im/keycard-go v0.2.0
 	github.com/stretchr/testify v1.9.0
-	github.com/supranational/blst v0.3.13
+	github.com/supranational/blst v0.3.11
 	github.com/syndtr/goleveldb v1.0.1-0.20210819022825-2ae1ddf74ef7
 	github.com/urfave/cli/v2 v2.25.7
 	go.uber.org/automaxprocs v1.5.2
@@ -99,6 +100,7 @@ require (
 	github.com/consensys/bavard v0.1.22 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/deepmap/oapi-codegen v1.6.0 // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dlclark/regexp2 v1.7.0 // indirect
 	github.com/garslo/gogen v0.0.0-20170306192744-1d203ffc1f61 // indirect
 	github.com/getsentry/sentry-go v0.27.0 // indirect

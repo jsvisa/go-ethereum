@@ -34,8 +34,8 @@ func main() {
 	}
 	ctx := context.Background()
 
-	keyChan := make(chan []byte, 1024)
-	valChan := make(chan []byte, 1024)
+	keyChan := make(chan []byte, 8192)
+	valChan := make(chan []byte, 8192)
 
 	go func() {
 		for key := range keyChan {
@@ -47,7 +47,7 @@ func main() {
 	}()
 	go func() {
 		for val := range valChan {
-			rKey := fmt.Sprintf("v-%x-%d", string(val[0]), len(val))
+			rKey := fmt.Sprintf("v-%d", len(val))
 			if _, err := rdb.Incr(ctx, rKey).Result(); err != nil {
 				log.Crit("failed to increase redis", "rkey", rKey, "err", err)
 			}

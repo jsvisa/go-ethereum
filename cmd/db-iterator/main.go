@@ -115,10 +115,8 @@ func iterate(db *pebble.DB, start []byte, end []byte, keyChan, valChan chan []by
 
 		count++
 		if since := time.Since(st); since > 10*time.Second {
-			log.Info("Iterator ethdb", "range", fmt.Sprintf("%#x-%#x", start, end), "count", count, "elapsed", common.PrettyDuration(time.Since(ct)), "tps", count/int(since.Seconds()))
-
+			log.Info("Iterator ethdb", "range", fmt.Sprintf("%#x-%#x", start, end), "count", count, "elapsed", common.PrettyDuration(time.Since(ct)), "tps", count/int(time.Since(ct).Seconds()))
 			st = time.Now()
-			count = 0
 		}
 	}
 }

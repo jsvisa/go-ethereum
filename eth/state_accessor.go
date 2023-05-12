@@ -27,17 +27,14 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie"
 )
 
-// StateReleaseFunc is used to deallocate resources held by constructing a
-// historical state for tracing purposes.
-type StateReleaseFunc func()
-
 // noopReleaser is returned in case there is no operation expected
 // for releasing state.
-var noopReleaser = StateReleaseFunc(func() {})
+var noopReleaser = tracers.StateReleaseFunc(func() {})
 
 // StateAtBlock retrieves the state database associated with a certain block.
 // If no state is locally available for the given block, a number of blocks
@@ -60,7 +57,7 @@ var noopReleaser = StateReleaseFunc(func() {})
 //   - preferDisk: this arg can be used by the caller to signal that even though the 'base' is
 //     provided, it would be preferable to start from a fresh state, if we have it
 //     on disk.
-func (eth *Ethereum) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (statedb *state.StateDB, release StateReleaseFunc, err error) {
+func (eth *Ethereum) StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (statedb *state.StateDB, release tracers.StateReleaseFunc, err error) {
 	var (
 		current  *types.Block
 		database state.Database
@@ -192,7 +189,7 @@ func (eth *Ethereum) StateAtBlock(ctx context.Context, block *types.Block, reexe
 }
 
 // stateAtTransaction returns the execution environment of a certain transaction.
-func (eth *Ethereum) stateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, StateReleaseFunc, error) {
+func (eth *Ethereum) stateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, tracers.StateReleaseFunc, error) {
 	// Short circuit if it's genesis block.
 	if block.NumberU64() == 0 {
 		return nil, vm.BlockContext{}, nil, nil, errors.New("no transaction in genesis")

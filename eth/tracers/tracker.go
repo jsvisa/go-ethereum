@@ -19,18 +19,16 @@ package tracers
 import (
 	"fmt"
 	"sync"
-
-	"github.com/ethereum/go-ethereum/eth"
 )
 
 // stateTracker is an auxiliary tool used to cache the release functions of all
 // used trace states, and to determine whether the creation of trace state needs
 // to be paused in case there are too many states waiting for tracing.
 type stateTracker struct {
-	limit    int                    // Maximum number of states allowed waiting for tracing
-	oldest   uint64                 // The number of the oldest state which is still using for trace
-	used     []bool                 // List of flags indicating whether the trace state has been used up
-	releases []eth.StateReleaseFunc // List of trace state release functions waiting to be called
+	limit    int                // Maximum number of states allowed waiting for tracing
+	oldest   uint64             // The number of the oldest state which is still using for trace
+	used     []bool             // List of flags indicating whether the trace state has been used up
+	releases []StateReleaseFunc // List of trace state release functions waiting to be called
 	cond     *sync.Cond
 	lock     *sync.RWMutex
 }
@@ -50,7 +48,7 @@ func newStateTracker(limit int, oldest uint64) *stateTracker {
 
 // releaseState marks the state specified by the number as released and caches
 // the corresponding release functions internally.
-func (t *stateTracker) releaseState(number uint64, release eth.StateReleaseFunc) {
+func (t *stateTracker) releaseState(number uint64, release StateReleaseFunc) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 

@@ -36,7 +36,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/eth"
 	"github.com/ethereum/go-ethereum/eth/tracers/logger"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
@@ -71,6 +70,10 @@ const (
 
 var errTxNotFound = errors.New("transaction not found")
 
+// StateReleaseFunc is used to deallocate resources held by constructing a
+// historical state for tracing purposes.
+type StateReleaseFunc func()
+
 // Backend interface provides the common API services (that are provided by
 // both full and light clients) with access to necessary functions.
 type Backend interface {
@@ -83,8 +86,8 @@ type Backend interface {
 	ChainConfig() *params.ChainConfig
 	Engine() consensus.Engine
 	ChainDb() ethdb.Database
-	StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (*state.StateDB, eth.StateReleaseFunc, error)
-	StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, eth.StateReleaseFunc, error)
+	StateAtBlock(ctx context.Context, block *types.Block, reexec uint64, base *state.StateDB, readOnly bool, preferDisk bool) (*state.StateDB, StateReleaseFunc, error)
+	StateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, StateReleaseFunc, error)
 }
 
 // API is the collection of tracing APIs exposed over the private debugging endpoint.
@@ -181,10 +184,10 @@ type txTraceResult struct {
 // blockTraceTask represents a single block trace task when an entire chain is
 // being traced.
 type blockTraceTask struct {
-	statedb *state.StateDB       // Intermediate state prepped for tracing
-	block   *types.Block         // Block to trace the transactions from
-	release eth.StateReleaseFunc // The function to release the held resource for this task
-	results []*txTraceResult     // Trace results produced by the task
+	statedb *state.StateDB   // Intermediate state prepped for tracing
+	block   *types.Block     // Block to trace the transactions from
+	release StateReleaseFunc // The function to release the held resource for this task
+	results []*txTraceResult // Trace results produced by the task
 }
 
 // blockTraceResult represents the results of tracing a single block when an entire
@@ -307,7 +310,7 @@ func (api *API) traceChain(start, end *types.Block, config *TraceConfig, closed 
 			traced  uint64
 			failed  error
 			statedb *state.StateDB
-			release eth.StateReleaseFunc
+			release StateReleaseFunc
 		)
 		// Ensure everything is properly cleaned up on any exit path
 		defer func() {

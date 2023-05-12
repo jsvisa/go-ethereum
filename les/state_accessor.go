@@ -25,21 +25,21 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/eth"
+	"github.com/ethereum/go-ethereum/eth/tracers"
 	"github.com/ethereum/go-ethereum/light"
 )
 
 // noopReleaser is returned in case there is no operation expected
 // for releasing state.
-var noopReleaser = eth.StateReleaseFunc(func() {})
+var noopReleaser = tracers.StateReleaseFunc(func() {})
 
 // stateAtBlock retrieves the state database associated with a certain block.
-func (leth *LightEthereum) stateAtBlock(ctx context.Context, block *types.Block, reexec uint64) (*state.StateDB, eth.StateReleaseFunc, error) {
+func (leth *LightEthereum) stateAtBlock(ctx context.Context, block *types.Block, reexec uint64) (*state.StateDB, tracers.StateReleaseFunc, error) {
 	return light.NewState(ctx, block.Header(), leth.odr), noopReleaser, nil
 }
 
 // stateAtTransaction returns the execution environment of a certain transaction.
-func (leth *LightEthereum) stateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, eth.StateReleaseFunc, error) {
+func (leth *LightEthereum) stateAtTransaction(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, tracers.StateReleaseFunc, error) {
 	// Short circuit if it's genesis block.
 	if block.NumberU64() == 0 {
 		return nil, vm.BlockContext{}, nil, nil, errors.New("no transaction in genesis")

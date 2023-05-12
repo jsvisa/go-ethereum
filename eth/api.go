@@ -243,9 +243,6 @@ func NewDebugAPI(eth *Ethereum) *DebugAPI {
 	return &DebugAPI{eth: eth}
 }
 
-// AccountRangeMaxResults is the maximum number of results to be returned per call
-const AccountRangeMaxResults = 256
-
 // SetTrieFlushInterval configures how often in-memory tries are persisted
 // to disk. The value is in terms of block processing time, not wall clock.
 func (api *DebugAPI) SetTrieFlushInterval(interval string) error {

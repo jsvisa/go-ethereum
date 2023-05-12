@@ -231,6 +231,15 @@ func (b *EthAPIBackend) StateAndHeaderByNumberOrHash(ctx context.Context, blockN
 	return nil, nil, errors.New("invalid arguments; neither block nor hash specified")
 }
 
+func (b *EthAPIBackend) StateAtBlockAndTxIndex(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, func(), error) {
+	msg, vmctx, statedb, release, err := b.eth.stateAtTransaction(ctx, block, txIndex, reexec)
+	if err == nil {
+		// wrap tracers.StateReleaseFunc into func() {}
+		return msg, vmctx, statedb, func() { release() }, nil
+	}
+	return msg, vmctx, statedb, func() {}, err
+}
+
 func (b *EthAPIBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
 	return b.eth.blockchain.GetReceiptsByHash(hash), nil
 }

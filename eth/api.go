@@ -250,43 +250,6 @@ func NewDebugAPI(eth *Ethereum) *DebugAPI {
 	return &DebugAPI{eth: eth}
 }
 
-// DumpBlock retrieves the entire state of the database at a given block.
-func (api *DebugAPI) DumpBlock(blockNr rpc.BlockNumber) (state.Dump, error) {
-	opts := &state.DumpConfig{
-		OnlyWithAddresses: true,
-		Max:               AccountRangeMaxResults, // Sanity limit over RPC
-	}
-	if blockNr == rpc.PendingBlockNumber {
-		// If we're dumping the pending state, we need to request
-		// both the pending block as well as the pending state from
-		// the miner and operate on those
-		_, stateDb := api.eth.miner.Pending()
-		return stateDb.RawDump(opts), nil
-	}
-	var header *types.Header
-	if blockNr == rpc.LatestBlockNumber {
-		header = api.eth.blockchain.CurrentBlock()
-	} else if blockNr == rpc.FinalizedBlockNumber {
-		header = api.eth.blockchain.CurrentFinalBlock()
-	} else if blockNr == rpc.SafeBlockNumber {
-		header = api.eth.blockchain.CurrentSafeBlock()
-	} else {
-		block := api.eth.blockchain.GetBlockByNumber(uint64(blockNr))
-		if block == nil {
-			return state.Dump{}, fmt.Errorf("block #%d not found", blockNr)
-		}
-		header = block.Header()
-	}
-	if header == nil {
-		return state.Dump{}, fmt.Errorf("block #%d not found", blockNr)
-	}
-	stateDb, err := api.eth.BlockChain().StateAt(header.Root)
-	if err != nil {
-		return state.Dump{}, err
-	}
-	return stateDb.RawDump(opts), nil
-}
-
 // Preimage is a debug API function that returns the preimage for a sha3 hash, if known.
 func (api *DebugAPI) Preimage(ctx context.Context, hash common.Hash) (hexutil.Bytes, error) {
 	if preimage := rawdb.ReadPreimage(api.eth.ChainDb(), hash); preimage != nil {

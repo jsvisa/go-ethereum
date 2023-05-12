@@ -8,6 +8,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -140,4 +141,23 @@ func (api *DebugAPI) ChaindbCompact() error {
 // SetHead rewinds the head of the blockchain to a previous block.
 func (api *DebugAPI) SetHead(number hexutil.Uint64) {
 	api.b.SetHead(uint64(number))
+}
+
+// AccountRangeMaxResults is the maximum number of results to be returned per call
+const AccountRangeMaxResults = 256
+
+// DumpBlock retrieves the entire state of the database at a given block.
+func (api *DebugAPI) DumpBlock(ctx context.Context, blockNr rpc.BlockNumber) (state.Dump, error) {
+	opts := &state.DumpConfig{
+		OnlyWithAddresses: true,
+		Max:               AccountRangeMaxResults, // Sanity limit over RPC
+	}
+	stateDb, header, err := api.b.StateAndHeaderByNumber(ctx, blockNr)
+	if err != nil {
+		return state.Dump{}, err
+	}
+	if header == nil {
+		return state.Dump{}, fmt.Errorf("block #%d not found", blockNr)
+	}
+	return stateDb.RawDump(opts), nil
 }

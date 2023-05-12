@@ -208,3 +208,26 @@ func (api *DebugAPI) GetBadBlocks(ctx context.Context) ([]*BadBlockArgs, error) 
 	}
 	return results, nil
 }
+
+// AccountRange enumerates all accounts in the given block and start point in paging request
+func (api *DebugAPI) AccountRange(ctx context.Context, blockNrOrHash rpc.BlockNumberOrHash, start hexutil.Bytes, maxResults int, nocode, nostorage, incompletes bool) (state.IteratorDump, error) {
+	stateDb, header, err := api.b.StateAndHeaderByNumberOrHash(ctx, blockNrOrHash)
+	if err != nil {
+		return state.IteratorDump{}, err
+	}
+	if header == nil {
+		return state.IteratorDump{}, fmt.Errorf("block #%s not found", blockNrOrHash.String())
+	}
+
+	opts := &state.DumpConfig{
+		SkipCode:          nocode,
+		SkipStorage:       nostorage,
+		OnlyWithAddresses: !incompletes,
+		Start:             start,
+		Max:               uint64(maxResults),
+	}
+	if maxResults > AccountRangeMaxResults || maxResults <= 0 {
+		opts.Max = AccountRangeMaxResults
+	}
+	return stateDb.IteratorDump(opts), nil
+}

@@ -166,6 +166,15 @@ func (b *LesApiBackend) StateAndHeaderByNumberOrHash(ctx context.Context, blockN
 	return nil, nil, errors.New("invalid arguments; neither block nor hash specified")
 }
 
+func (b *LesApiBackend) StateAtBlockAndTxIndex(ctx context.Context, block *types.Block, txIndex int, reexec uint64) (*core.Message, vm.BlockContext, *state.StateDB, func(), error) {
+	msg, vmctx, statedb, release, err := b.eth.stateAtTransaction(ctx, block, txIndex, reexec)
+	if err == nil {
+		// wrap tracers.StateReleaseFunc into func() {}
+		return msg, vmctx, statedb, func() { release() }, nil
+	}
+	return msg, vmctx, statedb, func() {}, err
+}
+
 func (b *LesApiBackend) GetReceipts(ctx context.Context, hash common.Hash) (types.Receipts, error) {
 	if number := rawdb.ReadHeaderNumber(b.eth.chainDb, hash); number != nil {
 		return light.GetBlockReceipts(ctx, b.eth.odr, hash, *number)

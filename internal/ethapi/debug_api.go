@@ -2,12 +2,14 @@ package ethapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -160,4 +162,12 @@ func (api *DebugAPI) DumpBlock(ctx context.Context, blockNr rpc.BlockNumber) (st
 		return state.Dump{}, fmt.Errorf("block #%d not found", blockNr)
 	}
 	return stateDb.RawDump(opts), nil
+}
+
+// Preimage is a debug API function that returns the preimage for a sha3 hash, if known.
+func (api *DebugAPI) Preimage(ctx context.Context, hash common.Hash) (hexutil.Bytes, error) {
+	if preimage := rawdb.ReadPreimage(api.b.ChainDb(), hash); preimage != nil {
+		return preimage, nil
+	}
+	return nil, errors.New("unknown preimage")
 }

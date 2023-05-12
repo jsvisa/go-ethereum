@@ -18,7 +18,6 @@ package eth
 
 import (
 	"compress/gzip"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -31,7 +30,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
-	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -251,65 +249,6 @@ func NewDebugAPI(eth *Ethereum) *DebugAPI {
 
 // AccountRangeMaxResults is the maximum number of results to be returned per call
 const AccountRangeMaxResults = 256
-
-// StorageRangeResult is the result of a debug_storageRangeAt API call.
-type StorageRangeResult struct {
-	Storage storageMap   `json:"storage"`
-	NextKey *common.Hash `json:"nextKey"` // nil if Storage includes the last key in the trie.
-}
-
-type storageMap map[common.Hash]storageEntry
-
-type storageEntry struct {
-	Key   *common.Hash `json:"key"`
-	Value common.Hash  `json:"value"`
-}
-
-// StorageRangeAt returns the storage at the given block height and transaction index.
-func (api *DebugAPI) StorageRangeAt(ctx context.Context, blockHash common.Hash, txIndex int, contractAddress common.Address, keyStart hexutil.Bytes, maxResult int) (StorageRangeResult, error) {
-	// Retrieve the block
-	block := api.eth.blockchain.GetBlockByHash(blockHash)
-	if block == nil {
-		return StorageRangeResult{}, fmt.Errorf("block %#x not found", blockHash)
-	}
-	_, _, statedb, release, err := api.eth.stateAtTransaction(ctx, block, txIndex, 0)
-	if err != nil {
-		return StorageRangeResult{}, err
-	}
-	defer release()
-
-	st, err := statedb.StorageTrie(contractAddress)
-	if err != nil {
-		return StorageRangeResult{}, err
-	}
-	if st == nil {
-		return StorageRangeResult{}, fmt.Errorf("account %x doesn't exist", contractAddress)
-	}
-	return storageRangeAt(st, keyStart, maxResult)
-}
-
-func storageRangeAt(st state.Trie, start []byte, maxResult int) (StorageRangeResult, error) {
-	it := trie.NewIterator(st.NodeIterator(start))
-	result := StorageRangeResult{Storage: storageMap{}}
-	for i := 0; i < maxResult && it.Next(); i++ {
-		_, content, _, err := rlp.Split(it.Value)
-		if err != nil {
-			return StorageRangeResult{}, err
-		}
-		e := storageEntry{Value: common.BytesToHash(content)}
-		if preimage := st.GetKey(it.Key); preimage != nil {
-			preimage := common.BytesToHash(preimage)
-			e.Key = &preimage
-		}
-		result.Storage[common.BytesToHash(it.Key)] = e
-	}
-	// Add the 'next key' so clients can continue downloading.
-	if it.Next() {
-		next := common.BytesToHash(it.Key)
-		result.NextKey = &next
-	}
-	return result, nil
-}
 
 // GetModifiedAccountsByNumber returns all accounts that have changed between the
 // two blocks specified. A change is defined as a difference in nonce, balance,

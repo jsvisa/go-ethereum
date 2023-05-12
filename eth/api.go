@@ -34,7 +34,6 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/ethereum/go-ethereum/trie"
 )
 
 // EthereumAPI provides an API to access Ethereum full node-related information.
@@ -249,89 +248,6 @@ func NewDebugAPI(eth *Ethereum) *DebugAPI {
 
 // AccountRangeMaxResults is the maximum number of results to be returned per call
 const AccountRangeMaxResults = 256
-
-// GetModifiedAccountsByNumber returns all accounts that have changed between the
-// two blocks specified. A change is defined as a difference in nonce, balance,
-// code hash, or storage hash.
-//
-// With one parameter, returns the list of accounts modified in the specified block.
-func (api *DebugAPI) GetModifiedAccountsByNumber(startNum uint64, endNum *uint64) ([]common.Address, error) {
-	var startBlock, endBlock *types.Block
-
-	startBlock = api.eth.blockchain.GetBlockByNumber(startNum)
-	if startBlock == nil {
-		return nil, fmt.Errorf("start block %x not found", startNum)
-	}
-
-	if endNum == nil {
-		endBlock = startBlock
-		startBlock = api.eth.blockchain.GetBlockByHash(startBlock.ParentHash())
-		if startBlock == nil {
-			return nil, fmt.Errorf("block %x has no parent", endBlock.Number())
-		}
-	} else {
-		endBlock = api.eth.blockchain.GetBlockByNumber(*endNum)
-		if endBlock == nil {
-			return nil, fmt.Errorf("end block %d not found", *endNum)
-		}
-	}
-	return api.getModifiedAccounts(startBlock, endBlock)
-}
-
-// GetModifiedAccountsByHash returns all accounts that have changed between the
-// two blocks specified. A change is defined as a difference in nonce, balance,
-// code hash, or storage hash.
-//
-// With one parameter, returns the list of accounts modified in the specified block.
-func (api *DebugAPI) GetModifiedAccountsByHash(startHash common.Hash, endHash *common.Hash) ([]common.Address, error) {
-	var startBlock, endBlock *types.Block
-	startBlock = api.eth.blockchain.GetBlockByHash(startHash)
-	if startBlock == nil {
-		return nil, fmt.Errorf("start block %x not found", startHash)
-	}
-
-	if endHash == nil {
-		endBlock = startBlock
-		startBlock = api.eth.blockchain.GetBlockByHash(startBlock.ParentHash())
-		if startBlock == nil {
-			return nil, fmt.Errorf("block %x has no parent", endBlock.Number())
-		}
-	} else {
-		endBlock = api.eth.blockchain.GetBlockByHash(*endHash)
-		if endBlock == nil {
-			return nil, fmt.Errorf("end block %x not found", *endHash)
-		}
-	}
-	return api.getModifiedAccounts(startBlock, endBlock)
-}
-
-func (api *DebugAPI) getModifiedAccounts(startBlock, endBlock *types.Block) ([]common.Address, error) {
-	if startBlock.Number().Uint64() >= endBlock.Number().Uint64() {
-		return nil, fmt.Errorf("start block height (%d) must be less than end block height (%d)", startBlock.Number().Uint64(), endBlock.Number().Uint64())
-	}
-	triedb := api.eth.BlockChain().StateCache().TrieDB()
-
-	oldTrie, err := trie.NewStateTrie(trie.StateTrieID(startBlock.Root()), triedb)
-	if err != nil {
-		return nil, err
-	}
-	newTrie, err := trie.NewStateTrie(trie.StateTrieID(endBlock.Root()), triedb)
-	if err != nil {
-		return nil, err
-	}
-	diff, _ := trie.NewDifferenceIterator(oldTrie.NodeIterator([]byte{}), newTrie.NodeIterator([]byte{}))
-	iter := trie.NewIterator(diff)
-
-	var dirty []common.Address
-	for iter.Next() {
-		key := newTrie.GetKey(iter.Key)
-		if key == nil {
-			return nil, fmt.Errorf("no preimage found for hash %x", iter.Key)
-		}
-		dirty = append(dirty, common.BytesToAddress(key))
-	}
-	return dirty, nil
-}
 
 // GetAccessibleState returns the first number where the node has accessible
 // state on disk. Note this being the post-state of that block and the pre-state

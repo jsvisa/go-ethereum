@@ -292,6 +292,10 @@ func (b *LesApiBackend) ChainDb() ethdb.Database {
 	return b.eth.chainDb
 }
 
+func (b *LesApiBackend) StateCache() state.Database {
+	panic("not implemented")
+}
+
 func (b *LesApiBackend) AccountManager() *accounts.Manager {
 	return b.eth.accountManager
 }

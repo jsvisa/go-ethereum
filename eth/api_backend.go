@@ -355,6 +355,10 @@ func (b *EthAPIBackend) ChainDb() ethdb.Database {
 	return b.eth.ChainDb()
 }
 
+func (b *EthAPIBackend) StateCache() state.Database {
+	return b.eth.BlockChain().StateCache()
+}
+
 func (b *EthAPIBackend) EventMux() *event.TypeMux {
 	return b.eth.EventMux()
 }

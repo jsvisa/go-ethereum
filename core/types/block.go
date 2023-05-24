@@ -122,6 +122,7 @@ func (h *Header) Size() common.StorageSize {
 	if h.BaseFee != nil {
 		baseFeeBits = h.BaseFee.BitLen()
 	}
+	fmt.Printf("headerSize: %v, len(h.Extra): %v, h.diff.bitlen: %v, number.bitlen: %v, bseFeeBits: %d\n", headerSize, len(h.Extra), h.Difficulty.BitLen(), h.Number.BitLen(), baseFeeBits)
 	return headerSize + common.StorageSize(len(h.Extra)+(h.Difficulty.BitLen()+h.Number.BitLen()+baseFeeBits)/8)
 }
 

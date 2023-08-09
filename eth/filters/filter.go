@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/bloombits"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
@@ -233,6 +234,12 @@ func (f *Filter) indexedLogs(ctx context.Context, end uint64, logChan chan *type
 
 	f.sys.backend.ServiceFilter(ctx, session)
 
+	be, ee, matched, falsed := uint64(f.begin), end, uint64(0), uint64(0)
+	defer func() {
+		fp := float64(falsed) / float64(ee-be)
+		log.Error("indexedLogs", "falsed#", falsed, "matched", matched, "fp%", fp*100, "total", ee-be, "begin", be, "end", ee, "new-begin", f.begin)
+	}()
+
 	for {
 		select {
 		case number, ok := <-matches:
@@ -245,6 +252,7 @@ func (f *Filter) indexedLogs(ctx context.Context, end uint64, logChan chan *type
 				return err
 			}
 			f.begin = int64(number) + 1
+			matched += 1
 
 			// Retrieve the suggested block and pull any truly matching logs
 			header, err := f.sys.backend.HeaderByNumber(ctx, rpc.BlockNumber(number))
@@ -254,6 +262,9 @@ func (f *Filter) indexedLogs(ctx context.Context, end uint64, logChan chan *type
 			found, err := f.checkMatches(ctx, header)
 			if err != nil {
 				return err
+			}
+			if len(found) == 0 {
+				falsed++
 			}
 			for _, log := range found {
 				logChan <- log

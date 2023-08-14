@@ -255,7 +255,11 @@ func (f *Filter) indexedLogs(ctx context.Context, end uint64, logChan chan []*ty
 			if err != nil {
 				return err
 			}
-			logChan <- found
+			select {
+			case logChan <- found:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 
 		case <-ctx.Done():
 			return ctx.Err()

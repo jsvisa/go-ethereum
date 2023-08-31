@@ -1,0 +1,19 @@
+version = 1
+
+[[analyzers]]
+name = "shell"
+
+[[analyzers]]
+name = "javascript"
+
+[[analyzers]]
+name = "go"
+
+  [analyzers.meta]
+  import_root = "github.com/jsvisa/go-ethereum"
+
+[[analyzers]]
+name = "python"
+
+  [analyzers.meta]
+  runtime_version = "3.x.x"

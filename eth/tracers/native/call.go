@@ -43,6 +43,7 @@ type callLog struct {
 	// Position of the log relative to subcalls within the same trace
 	// See https://github.com/ethereum/go-ethereum/pull/28389 for details
 	Position hexutil.Uint `json:"position"`
+	LogIndex hexutil.Uint `json:"logIndex"`
 }
 
 type callFrame struct {
@@ -108,6 +109,7 @@ type callTracer struct {
 	gasLimit  uint64
 	interrupt atomic.Bool // Atomic flag to signal execution interruption
 	reason    error       // Textual reason for the interruption
+	logIndex  int
 }
 
 type callTracerConfig struct {
@@ -196,7 +198,9 @@ func (t *callTracer) CaptureState(pc uint64, op vm.OpCode, gas, cost uint64, sco
 			Topics:   topics,
 			Data:     hexutil.Bytes(data),
 			Position: hexutil.Uint(len(t.callstack[len(t.callstack)-1].Calls)),
+			LogIndex: hexutil.Uint(t.logIndex),
 		}
+		t.logIndex++
 		t.callstack[len(t.callstack)-1].Logs = append(t.callstack[len(t.callstack)-1].Logs, log)
 	}
 }

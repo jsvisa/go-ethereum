@@ -57,25 +57,25 @@
   },
   "input": "0xf86d808504e3b292008307dfa69433056b5dcac09a9b4becad0e1dcf92c19bd0af76880e92596fd62900008029a0e5f27bb66431f7081bb7f1f242003056d7f3f35414c352cd3d1848b52716dac2a07d0be78980edb0bd2a0678fc53aa90ea9558ce346b0d947967216918ac74ccea",
   "result": {
-    "calls": [
-      {
-        "error": "invalid opcode: INVALID",
-        "from": "0x33056b5dcac09a9b4becad0e1dcf92c19bd0af76",
-        "gas": "0x75fe3",
-        "gasUsed": "0x75fe3",
-        "input": "0xa9059cbb000000000000000000000000d4fcab9f0a6dc0493af47c864f6f17a8a5e2e82600000000000000000000000000000000000000000000000000000000000002f4",
-        "to": "0xe819f024b41358d2c08e3a868a5c5dd0566078d4",
-        "type": "CALL",
-        "value": "0x0"
-      }
-    ],
-    "error": "execution reverted",
+    "type": "CALL",
     "from": "0xd4fcab9f0a6dc0493af47c864f6f17a8a5e2e826",
+    "to": "0x33056b5dcac09a9b4becad0e1dcf92c19bd0af76",
+    "value": "0xe92596fd6290000",
     "gas": "0x7dfa6",
     "gasUsed": "0x7c1c8",
     "input": "0x",
-    "to": "0x33056b5dcac09a9b4becad0e1dcf92c19bd0af76",
-    "type": "CALL",
-    "value": "0xe92596fd6290000"
+    "error": "execution reverted",
+    "calls": [
+      {
+        "type": "CALL",
+        "from": "0x33056b5dcac09a9b4becad0e1dcf92c19bd0af76",
+        "to": "0xe819f024b41358d2c08e3a868a5c5dd0566078d4",
+        "value": "0x0",
+        "gas": "0x75fe3",
+        "gasUsed": "0x75fe3",
+        "input": "0xa9059cbb000000000000000000000000d4fcab9f0a6dc0493af47c864f6f17a8a5e2e82600000000000000000000000000000000000000000000000000000000000002f4",
+        "error": "invalid opcode: INVALID"
+      }
+    ]
   }
 }

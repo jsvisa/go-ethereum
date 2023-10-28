@@ -1,16 +1,12 @@
 {
-  "genesis": {
-    "difficulty": "8430028481555",
-    "extraData": "0xd783010302844765746887676f312e352e31856c696e7578",
+  "context": {
+    "difficulty": "8425912256743",
     "gasLimit": "3141592",
-    "hash": "0xde66937783697293f2e529d2034887c531535d78afa8c9051511ae12ba48fbea",
-    "miner": "0x2a65aca4d5fc5b5c859090a6c34d164135398226",
-    "mixHash": "0xba28a43bfbca4a2effbb76bb70d03482a8a0c92e2883ff36cbac3d7c6dbb7df5",
-    "nonce": "0xa3827ec0a82fe823",
-    "number": "765824",
-    "stateRoot": "0x8d96cb027a29f8ca0ccd6d31f9ea0656136ec8030ecda70bb9231849ed6f41a2",
-    "timestamp": "1451389443",
-    "totalDifficulty": "4838314986494741271",
+    "miner": "0xe2fe6b13287f28e193333fdfe7fedf2f6df6124a",
+    "number": "765825",
+    "timestamp": "1451389488"
+  },
+  "genesis": {
     "alloc": {
       "0xd1220a0cf47c7b9be7a2e6ba89f429762e7b9adb": {
         "balance": "0x14203bee2ea6fbe8c",
@@ -29,38 +25,39 @@
       }
     },
     "config": {
+      "arrowGlacierBlock": 13773000,
+      "berlinBlock": 12244000,
+      "byzantiumBlock": 4370000,
       "chainId": 1,
-      "homesteadBlock": 1150000,
+      "constantinopleBlock": 7280000,
       "daoForkBlock": 1920000,
       "daoForkSupport": true,
       "eip150Block": 2463000,
       "eip150Hash": "0x2086799aeebeae135c246c65021c82b4e15a2c451340993aacfd2751886514f0",
       "eip155Block": 2675000,
       "eip158Block": 2675000,
-      "byzantiumBlock": 4370000,
-      "constantinopleBlock": 7280000,
-      "petersburgBlock": 7280000,
-      "istanbulBlock": 9069000,
-      "muirGlacierBlock": 9200000,
-      "berlinBlock": 12244000,
-      "londonBlock": 12965000,
-      "arrowGlacierBlock": 13773000,
+      "ethash": {},
       "grayGlacierBlock": 15050000,
-      "terminalTotalDifficultyPassed": true,
-      "ethash": {}
-    }
-  },
-  "context": {
-    "number": "765825",
-    "difficulty": "8425912256743",
-    "timestamp": "1451389488",
+      "homesteadBlock": 1150000,
+      "istanbulBlock": 9069000,
+      "londonBlock": 12965000,
+      "muirGlacierBlock": 9200000,
+      "petersburgBlock": 7280000,
+      "terminalTotalDifficultyPassed": true
+    },
+    "difficulty": "8430028481555",
+    "extraData": "0xd783010302844765746887676f312e352e31856c696e7578",
     "gasLimit": "3141592",
-    "miner": "0xe2fe6b13287f28e193333fdfe7fedf2f6df6124a"
+    "hash": "0xde66937783697293f2e529d2034887c531535d78afa8c9051511ae12ba48fbea",
+    "miner": "0x2a65aca4d5fc5b5c859090a6c34d164135398226",
+    "mixHash": "0xba28a43bfbca4a2effbb76bb70d03482a8a0c92e2883ff36cbac3d7c6dbb7df5",
+    "nonce": "0xa3827ec0a82fe823",
+    "number": "765824",
+    "stateRoot": "0x8d96cb027a29f8ca0ccd6d31f9ea0656136ec8030ecda70bb9231849ed6f41a2",
+    "timestamp": "1451389443",
+    "totalDifficulty": "4838314986494741271"
   },
   "input": "0xf8aa22850ba43b740083024d4594f4eced2f682ce333f96f2d8966c613ded8fc95dd80b844a9059cbb000000000000000000000000dbf03b407c01e7cd3cbea99509d93f8dddc8c6fb00000000000000000000000000000000000000000000000000000000009896801ca067da548a2e0f381a957b9b51f086073375d6bfc7312cbc9540b3647ccab7db11a042c6e5b34bc7ba821e9c25b166fa13d82ad4b0d044d16174d5587d4f04ecfcd1",
-  "tracerConfig": {
-    "withLog": true
-  },
   "result": {
     "from": "0xd1220a0cf47c7b9be7a2e6ba89f429762e7b9adb",
     "gas": "0x24d45",
@@ -76,10 +73,14 @@
           "0x000000000000000000000000dbf03b407c01e7cd3cbea99509d93f8dddc8c6fb"
         ],
         "data": "0x0000000000000000000000000000000000000000000000000000000000989680",
-        "position": "0x0"
+        "position": "0x0",
+        "logIndex": "0x0"
       }
     ],
     "value": "0x0",
     "type": "CALL"
+  },
+  "tracerConfig": {
+    "withLog": true
   }
 }

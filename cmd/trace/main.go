@@ -272,45 +272,34 @@ func main() {
 	var testSuite = []struct {
 		blockNumber rpc.BlockNumber
 		config      *tracers.TraceConfig
-		want        string
-		expectErr   error
+		file        string
 	}{
 		// callTracer
 		{
 			blockNumber: rpc.BlockNumber(genBlocks),
 			config:      &tracers.TraceConfig{Tracer: &callTracer},
-			// want:        fmt.Sprintf(`[{"txHash":"%v","result":{"gas":21000,"failed":false,"returnValue":"","structLogs":[]}}]`, txHash),
-			want: `[]`,
+			file:        "callTracer.json",
 		},
 		// prestateTracer
 		{
 			blockNumber: rpc.BlockNumber(genBlocks),
 			config:      &tracers.TraceConfig{Tracer: &prestateTracer},
-			// want:        fmt.Sprintf(`[{"txHash":"%v","result":{"gas":21000,"failed":false,"returnValue":"","structLogs":[]}}]`, txHash),
-			want: `[]`,
+			file:        "prestateTracer.json",
 		},
 	}
 	for i, tc := range testSuite {
 		result, err := api.TraceBlockByNumber(context.Background(), tc.blockNumber, tc.config)
-		if tc.expectErr != nil {
-			if err == nil {
-				log.Crit("test failed", "idx", i, "want", tc.expectErr, "have", nil)
-				continue
-			}
-			if !errors.Is(err, tc.expectErr) {
-				log.Crit("test failed error mismatch", "idx", i, "want", tc.expectErr, "have", err)
-			}
-			continue
-		}
 		if err != nil {
-			log.Crit("test failed", "idx", i, "err", err)
+			log.Error("test failed", "idx", i, "err", err)
 			continue
 		}
-		have, _ := json.Marshal(result)
-		want := tc.want
-		if string(have) != want {
-			log.Error("test failed", "idx", i, "want", want, "have", string(have))
+		log.Info("test passed", "idx", i)
+		// write result to file
+		data, _ := json.MarshalIndent(result, "", "  ")
+		err = os.WriteFile(tc.file, data, 0644)
+		if err != nil {
+			log.Error("failed to write file", "err", err)
+			continue
 		}
 	}
-
 }

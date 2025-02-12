@@ -65,7 +65,7 @@ func New(file string, cache int, handles int, readonly bool) (*pebble.DB, error)
 
 		// The size of memory table(as well as the write buffer).
 		// Note, there may have more than two memory tables in the system.
-		MemTableSize: memTableSize,
+		MemTableSize: uint64(memTableSize),
 
 		// MemTableStopWritesThreshold places a hard limit on the size
 		// of the existent MemTables(including the frozen one).
@@ -97,10 +97,13 @@ func New(file string, cache int, handles int, readonly bool) (*pebble.DB, error)
 }
 
 func iterate(db *pebble.DB, start []byte, end []byte, keyChan, valChan chan []byte) {
-	iter := db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: start,
 		UpperBound: end,
 	})
+	if err != nil {
+		log.Crit("failed to create iterator", "err", err)
+	}
 	defer iter.Close()
 
 	count := 0
@@ -123,7 +126,7 @@ func iterate(db *pebble.DB, start []byte, end []byte, keyChan, valChan chan []by
 
 func main() {
 	flag.Parse()
-	log.Root().SetHandler(log.LvlFilterHandler(log.LvlInfo, log.StreamHandler(os.Stdout, log.TerminalFormat(true))))
+	log.SetDefault(log.NewLogger(log.NewTerminalHandlerWithLevel(os.Stderr, log.LevelInfo, true)))
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     *redisURL,

@@ -31,6 +31,35 @@ import (
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+var (
+	readCount = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "geth_pebble_read_count_total",
+		Help: "The total number of read operations",
+	}, []string{"status"})
+	readSeconds = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "geth_pebble_read_seconds_total",
+		Help: "The total number of seconds taken to read",
+	}, []string{"status"})
+	writeCount = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "geth_pebble_write_count_total",
+		Help: "The total number of write operations",
+	}, []string{"batch"})
+	writeSeconds = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "geth_pebble_write_seconds_total",
+		Help: "The total number of seconds taken to write",
+	}, []string{"batch"})
+	deleteCount = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "geth_pebble_delete_count_total",
+		Help: "The total number of delete operations",
+	}, []string{})
+	deleteSeconds = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "geth_pebble_delete_seconds_total",
+		Help: "The total number of seconds taken to delete",
+	}, []string{})
 )
 
 const (
@@ -287,7 +316,14 @@ func (d *Database) Has(key []byte) (bool, error) {
 	if d.closed {
 		return false, pebble.ErrClosed
 	}
+	st := time.Now()
 	_, closer, err := d.db.Get(key)
+	status := "200"
+	if err == pebble.ErrNotFound {
+		status = "404"
+	}
+	readCount.WithLabelValues(status).Inc()
+	readSeconds.WithLabelValues(status).Add(time.Since(st).Seconds())
 	if err == pebble.ErrNotFound {
 		return false, nil
 	} else if err != nil {
@@ -306,7 +342,14 @@ func (d *Database) Get(key []byte) ([]byte, error) {
 	if d.closed {
 		return nil, pebble.ErrClosed
 	}
+	st := time.Now()
 	dat, closer, err := d.db.Get(key)
+	status := "200"
+	if err == pebble.ErrNotFound {
+		status = "404"
+	}
+	readCount.WithLabelValues(status).Inc()
+	readSeconds.WithLabelValues(status).Add(time.Since(st).Seconds())
 	if err != nil {
 		return nil, err
 	}
@@ -325,6 +368,10 @@ func (d *Database) Put(key []byte, value []byte) error {
 	if d.closed {
 		return pebble.ErrClosed
 	}
+	defer func(st time.Time) {
+		writeCount.WithLabelValues("1").Inc()
+		writeSeconds.WithLabelValues("1").Add(time.Since(st).Seconds())
+	}(time.Now())
 	return d.db.Set(key, value, d.writeOptions)
 }
 
@@ -335,6 +382,10 @@ func (d *Database) Delete(key []byte) error {
 	if d.closed {
 		return pebble.ErrClosed
 	}
+	defer func(st time.Time) {
+		deleteCount.WithLabelValues().Inc()
+		deleteSeconds.WithLabelValues().Add(time.Since(st).Seconds())
+	}(time.Now())
 	return d.db.Delete(key, d.writeOptions)
 }
 
@@ -562,6 +613,11 @@ func (b *batch) Write() error {
 	if b.db.closed {
 		return pebble.ErrClosed
 	}
+	defer func(st time.Time) {
+		count := fmt.Sprintf("%d", b.b.Count())
+		writeCount.WithLabelValues(count).Inc()
+		writeSeconds.WithLabelValues(count).Add(time.Since(st).Seconds())
+	}(time.Now())
 	return b.b.Commit(b.db.writeOptions)
 }
 

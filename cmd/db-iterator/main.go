@@ -96,7 +96,7 @@ func New(file string, cache int, handles int, readonly bool) (*pebble.DB, error)
 	return db, err
 }
 
-func iterate(db *pebble.DB, start []byte, end []byte, keyChan, valChan chan []byte) {
+func iterate(db *pebble.DB, start []byte, end []byte, taskChan chan task) {
 	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: start,
 		UpperBound: end,
@@ -113,8 +113,7 @@ func iterate(db *pebble.DB, start []byte, end []byte, keyChan, valChan chan []by
 		key := iter.Key()
 		val := iter.Value()
 
-		keyChan <- key
-		valChan <- val
+		taskChan <- task{key, val}
 
 		count++
 		if since := time.Since(st); since > 10*time.Second {
@@ -122,6 +121,11 @@ func iterate(db *pebble.DB, start []byte, end []byte, keyChan, valChan chan []by
 			st = time.Now()
 		}
 	}
+}
+
+type task struct {
+	key []byte
+	val []byte
 }
 
 func main() {
@@ -135,15 +139,14 @@ func main() {
 	})
 	defer rdb.Close()
 
-	edb, err := New(*datadir, 4096, 50000, true)
+	edb, err := New(*datadir, 16*1024, 50000, true)
 	if err != nil {
 		log.Crit("failed to open pebble db", "err", err)
 	}
 
 	var (
-		keyChan = make(chan []byte, 8192**workers)
-		valChan = make(chan []byte, 8192**workers)
-		done    = make(chan bool)
+		taskChan = make(chan task, 8192**workers)
+		done     = make(chan bool)
 	)
 
 	go func() {
@@ -154,7 +157,7 @@ func main() {
 			case <-done:
 				return
 			case <-ticker.C:
-				log.Info("Chan stats", "#keyChannel", len(keyChan), "%util", len(keyChan)*100.0/cap(keyChan), "#valChannel", len(valChan), "%util", len(valChan)*100.0/cap(valChan))
+				log.Info("Chan stats", "#task", len(taskChan), "%util", len(taskChan)*100.0/cap(taskChan))
 			}
 		}
 
@@ -163,17 +166,17 @@ func main() {
 	for i := 0; i < *workers; i++ {
 		go func() {
 			ctx := context.Background()
-			for key := range keyChan {
-				rKey := fmt.Sprintf("k-%x-%d", string(key[0]), len(key))
+			for t := range taskChan {
+				rKey := fmt.Sprintf("k-%x-%d", string(t.key[0]), len(t.key))
 				if _, err := rdb.Incr(ctx, rKey).Result(); err != nil {
 					log.Crit("failed to increase redis", "rkey", rKey, "err", err)
 				}
-			}
-		}()
-		go func() {
-			ctx := context.Background()
-			for val := range valChan {
-				rKey := fmt.Sprintf("v-%d", len(val))
+				vlen := len(t.val)
+				if vlen >= 100*1024 {
+					log.Error("Large value", "key", common.Bytes2Hex(t.key), "vlen", vlen)
+				}
+
+				rKey = fmt.Sprintf("v-%d", vlen)
 				if _, err := rdb.Incr(ctx, rKey).Result(); err != nil {
 					log.Crit("failed to increase redis", "rkey", rKey, "err", err)
 				}
@@ -193,12 +196,11 @@ func main() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			iterate(edb, start, end, keyChan, valChan)
+			iterate(edb, start, end, taskChan)
 		}()
 	}
 
 	wg.Wait()
-	close(keyChan)
-	close(valChan)
+	close(taskChan)
 	done <- true
 }

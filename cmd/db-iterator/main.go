@@ -167,18 +167,25 @@ func main() {
 		go func() {
 			ctx := context.Background()
 			for t := range taskChan {
-				rKey := fmt.Sprintf("k-%x-%d", string(t.key[0]), len(t.key))
-				if _, err := rdb.Incr(ctx, rKey).Result(); err != nil {
-					log.Crit("failed to increase redis", "rkey", rKey, "err", err)
-				}
+				klen := len(t.key)
 				vlen := len(t.val)
 				if vlen >= 100*1024 {
 					log.Error("Large value", "key", common.Bytes2Hex(t.key), "vlen", vlen)
 				}
 
-				rKey = fmt.Sprintf("v-%d", vlen)
-				if _, err := rdb.Incr(ctx, rKey).Result(); err != nil {
-					log.Crit("failed to increase redis", "rkey", rKey, "err", err)
+				kKey := fmt.Sprintf("k-%x-%d", string(t.key[0]), klen)
+				if _, err := rdb.Incr(ctx, kKey).Result(); err != nil {
+					log.Crit("failed to increase redis", "rkey", kKey, "err", err)
+				}
+
+				vKey := fmt.Sprintf("v-%d", vlen)
+				if _, err := rdb.Incr(ctx, vKey).Result(); err != nil {
+					log.Crit("failed to increase redis", "rkey", vKey, "err", err)
+				}
+
+				kvKey := fmt.Sprintf("kv-%x-%d-%d", string(t.key[0]), klen, vlen)
+				if _, err := rdb.Incr(ctx, kvKey).Result(); err != nil {
+					log.Crit("failed to increase redis", "rkey", kvKey, "err", err)
 				}
 			}
 		}()

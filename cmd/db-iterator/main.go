@@ -54,7 +54,7 @@ func New(file string, cache int, handles int, readonly bool) (*pebble.DB, error)
 	memTableLimit := 2
 	memTableSize := cache * 1024 * 1024 / 2 / memTableLimit
 	if memTableSize > maxMemTableSize {
-		memTableSize = maxMemTableSize
+		memTableSize = maxMemTableSize - 1
 	}
 	opt := &pebble.Options{
 		// Pebble has a single combined cache area and the write

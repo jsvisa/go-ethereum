@@ -18,6 +18,7 @@ package state
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/lru"
@@ -25,6 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
+	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/ethereum/go-ethereum/trie/utils"
@@ -317,7 +319,13 @@ func newMultiStateReader(readers ...StateReader) (*multiStateReader, error) {
 // - The returned account is safe to modify after the call
 func (r *multiStateReader) Account(addr common.Address) (*types.StateAccount, error) {
 	var errs []error
+	count := 0
+	defer func() {
+		counter := metrics.GetOrRegisterCounter(fmt.Sprintf("state/read/account/%d", count), nil)
+		counter.Inc(1)
+	}()
 	for _, reader := range r.readers {
+		count++
 		acct, err := reader.Account(addr)
 		if err == nil {
 			return acct, nil
@@ -335,7 +343,13 @@ func (r *multiStateReader) Account(addr common.Address) (*types.StateAccount, er
 // - The returned storage slot is safe to modify after the call
 func (r *multiStateReader) Storage(addr common.Address, slot common.Hash) (common.Hash, error) {
 	var errs []error
+	count := 0
+	defer func() {
+		counter := metrics.GetOrRegisterCounter(fmt.Sprintf("state/read/storage/%d", count), nil)
+		counter.Inc(1)
+	}()
 	for _, reader := range r.readers {
+		count++
 		slot, err := reader.Storage(addr, slot)
 		if err == nil {
 			return slot, nil

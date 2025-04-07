@@ -94,9 +94,9 @@ type Database struct {
 	readExistedCount      *metrics.Counter
 	readNotfoundCount     *metrics.Counter
 	writeCount            *metrics.Counter
-	readExistedTime       *metrics.Counter
-	readNotfoundTime      *metrics.Counter
-	writeTime             *metrics.Counter
+	readExistedTime       *metrics.ResettingTimer
+	readNotfoundTime      *metrics.ResettingTimer
+	writeTime             *metrics.ResettingTimer
 	readAmp               *metrics.Gauge
 	levelsWriteAmp        []*metrics.GaugeFloat64
 	virtualSize           *metrics.Gauge
@@ -309,9 +309,10 @@ func New(file string, cache int, handles int, namespace string, readonly bool, e
 	db.readExistedCount = metrics.GetOrRegisterCounter(namespace+"read/existed/count", nil)
 	db.readNotfoundCount = metrics.GetOrRegisterCounter(namespace+"read/notfound/count", nil)
 	db.writeCount = metrics.GetOrRegisterCounter(namespace+"write/count", nil)
-	db.readExistedTime = metrics.GetOrRegisterCounter(namespace+"read/existed/duration", nil)
-	db.readNotfoundTime = metrics.GetOrRegisterCounter(namespace+"read/notfound/duration", nil)
-	db.writeTime = metrics.GetOrRegisterCounter(namespace+"write/duration", nil)
+	db.readExistedTime = metrics.NewRegisteredResettingTimer(namespace+"read/existed/duration", nil)
+	db.readNotfoundTime = metrics.NewRegisteredResettingTimer(namespace+"read/notfound/duration", nil)
+	db.writeTime = metrics.NewRegisteredResettingTimer(namespace+"write/duration", nil)
+
 	db.readAmp = metrics.GetOrRegisterGauge(namespace+"read/amp", nil)
 	db.virtualSize = metrics.GetOrRegisterGauge(namespace+"virtual/size", nil)
 	db.virtualCount = metrics.GetOrRegisterGauge(namespace+"virtual/count", nil)
@@ -352,11 +353,11 @@ func (d *Database) Has(key []byte) (bool, error) {
 	st := time.Now()
 	_, closer, err := d.db.Get(key)
 	if err == nil {
+		d.readExistedTime.Update(time.Since(st))
 		d.readExistedCount.Inc(1)
-		d.readExistedTime.Inc(time.Since(st).Nanoseconds())
 	} else if err == pebble.ErrNotFound {
+		d.readNotfoundTime.Update(time.Since(st))
 		d.readNotfoundCount.Inc(1)
-		d.readNotfoundTime.Inc(time.Since(st).Nanoseconds())
 	}
 	if err == pebble.ErrNotFound {
 		return false, nil
@@ -379,11 +380,11 @@ func (d *Database) Get(key []byte) ([]byte, error) {
 	st := time.Now()
 	dat, closer, err := d.db.Get(key)
 	if err == nil {
+		d.readExistedTime.Update(time.Since(st))
 		d.readExistedCount.Inc(1)
-		d.readExistedTime.Inc(time.Since(st).Nanoseconds())
 	} else if err == pebble.ErrNotFound {
+		d.readNotfoundTime.Update(time.Since(st))
 		d.readNotfoundCount.Inc(1)
-		d.readNotfoundTime.Inc(time.Since(st).Nanoseconds())
 	}
 	if err != nil {
 		return nil, err
@@ -404,7 +405,7 @@ func (d *Database) Put(key []byte, value []byte) error {
 		return pebble.ErrClosed
 	}
 	d.writeCount.Inc(1)
-	defer func(st time.Time) { d.writeTime.Inc(time.Since(st).Nanoseconds()) }(time.Now())
+	defer func(st time.Time) { d.writeTime.Update(time.Since(st)) }(time.Now())
 	return d.db.Set(key, value, d.writeOptions)
 }
 
@@ -653,7 +654,7 @@ func (b *batch) Write() error {
 		return pebble.ErrClosed
 	}
 	b.db.writeCount.Inc(1)
-	defer func(st time.Time) { b.db.writeTime.Inc(time.Since(st).Nanoseconds()) }(time.Now())
+	defer func(st time.Time) { b.db.writeTime.Update(time.Since(st)) }(time.Now())
 	return b.b.Commit(b.db.writeOptions)
 }
 

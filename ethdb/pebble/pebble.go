@@ -72,6 +72,36 @@ type Database struct {
 	seekCompGauge       *metrics.Gauge // Gauge for tracking the number of table compaction caused by read opt
 	manualMemAllocGauge *metrics.Gauge // Gauge for tracking amount of non-managed memory currently allocated
 
+	blockCacheCount       *metrics.Gauge
+	blockCacheSize        *metrics.Gauge
+	blockCacheHits        *metrics.Gauge
+	blockCacheMiss        *metrics.Gauge
+	tableCacheCount       *metrics.Gauge
+	tableCacheSize        *metrics.Gauge
+	tableCacheHits        *metrics.Gauge
+	tableCacheMiss        *metrics.Gauge
+	filterHits            *metrics.Gauge
+	filterMiss            *metrics.Gauge
+	compCount             *metrics.Gauge
+	compReadCount         *metrics.Gauge
+	compMoveCount         *metrics.Gauge
+	compMultiLevelCount   *metrics.Gauge
+	compCounterLevelCount *metrics.Gauge
+	compInProgressBytes   *metrics.Gauge
+	compInnerTime         *metrics.Gauge
+	ingestCount           *metrics.Gauge
+	flushCount            *metrics.Gauge
+	readExistedCount      *metrics.Counter
+	readNotfoundCount     *metrics.Counter
+	writeCount            *metrics.Counter
+	readExistedTime       *metrics.Counter
+	readNotfoundTime      *metrics.Counter
+	writeTime             *metrics.Counter
+	readAmp               *metrics.Gauge
+	levelsWriteAmp        []*metrics.GaugeFloat64
+	virtualSize           *metrics.Gauge
+	virtualCount          *metrics.Gauge
+
 	levelsGauge []*metrics.Gauge // Gauge for tracking the number of tables in levels
 
 	quitLock sync.RWMutex    // Mutex protecting the quit channel and the closed flag
@@ -187,6 +217,7 @@ func New(file string, cache int, handles int, namespace string, readonly bool, e
 		quitChan:     make(chan chan error),
 		writeOptions: &pebble.WriteOptions{Sync: !ephemeral},
 	}
+
 	opt := &pebble.Options{
 		// Pebble has a single combined cache area and the write
 		// buffers are taken from this too. Assign all available
@@ -254,6 +285,37 @@ func New(file string, cache int, handles int, namespace string, readonly bool, e
 	db.seekCompGauge = metrics.GetOrRegisterGauge(namespace+"compact/seek", nil)
 	db.manualMemAllocGauge = metrics.GetOrRegisterGauge(namespace+"memory/manualalloc", nil)
 
+	db.blockCacheCount = metrics.GetOrRegisterGauge(namespace+"blockcache/count", nil)
+	db.blockCacheSize = metrics.GetOrRegisterGauge(namespace+"blockcache/size", nil)
+	db.blockCacheHits = metrics.GetOrRegisterGauge(namespace+"blockcache/hits", nil)
+	db.blockCacheMiss = metrics.GetOrRegisterGauge(namespace+"blockcache/miss", nil)
+	db.tableCacheCount = metrics.GetOrRegisterGauge(namespace+"tablecache/count", nil)
+	db.tableCacheSize = metrics.GetOrRegisterGauge(namespace+"tablecache/size", nil)
+	db.tableCacheHits = metrics.GetOrRegisterGauge(namespace+"tablecache/hits", nil)
+	db.tableCacheMiss = metrics.GetOrRegisterGauge(namespace+"tablecache/miss", nil)
+	db.filterHits = metrics.GetOrRegisterGauge(namespace+"filter/hits", nil)
+	db.filterMiss = metrics.GetOrRegisterGauge(namespace+"filter/miss", nil)
+
+	db.compCount = metrics.GetOrRegisterGauge(namespace+"compact/count", nil)
+	db.compReadCount = metrics.GetOrRegisterGauge(namespace+"compact/read", nil)
+	db.compMoveCount = metrics.GetOrRegisterGauge(namespace+"compact/move", nil)
+	db.compMultiLevelCount = metrics.GetOrRegisterGauge(namespace+"compact/multilevel", nil)
+	db.compCounterLevelCount = metrics.GetOrRegisterGauge(namespace+"compact/counterlevel", nil)
+	db.compInProgressBytes = metrics.GetOrRegisterGauge(namespace+"compact/inprogressbytes", nil)
+	db.compInnerTime = metrics.GetOrRegisterGauge(namespace+"compact/duration", nil)
+	db.ingestCount = metrics.GetOrRegisterGauge(namespace+"ingest/count", nil)
+	db.flushCount = metrics.GetOrRegisterGauge(namespace+"flush/count", nil)
+
+	db.readExistedCount = metrics.GetOrRegisterCounter(namespace+"read/existed/count", nil)
+	db.readNotfoundCount = metrics.GetOrRegisterCounter(namespace+"read/notfound/count", nil)
+	db.writeCount = metrics.GetOrRegisterCounter(namespace+"write/count", nil)
+	db.readExistedTime = metrics.GetOrRegisterCounter(namespace+"read/existed/duration", nil)
+	db.readNotfoundTime = metrics.GetOrRegisterCounter(namespace+"read/notfound/duration", nil)
+	db.writeTime = metrics.GetOrRegisterCounter(namespace+"write/duration", nil)
+	db.readAmp = metrics.GetOrRegisterGauge(namespace+"read/amp", nil)
+	db.virtualSize = metrics.GetOrRegisterGauge(namespace+"virtual/size", nil)
+	db.virtualCount = metrics.GetOrRegisterGauge(namespace+"virtual/count", nil)
+
 	// Start up the metrics gathering and return
 	go db.meter(metricsGatheringInterval, namespace)
 	return db, nil
@@ -287,7 +349,15 @@ func (d *Database) Has(key []byte) (bool, error) {
 	if d.closed {
 		return false, pebble.ErrClosed
 	}
+	st := time.Now()
 	_, closer, err := d.db.Get(key)
+	if err == nil {
+		d.readExistedCount.Inc(1)
+		d.readExistedTime.Inc(time.Since(st).Nanoseconds())
+	} else if err == pebble.ErrNotFound {
+		d.readNotfoundCount.Inc(1)
+		d.readNotfoundTime.Inc(time.Since(st).Nanoseconds())
+	}
 	if err == pebble.ErrNotFound {
 		return false, nil
 	} else if err != nil {
@@ -306,7 +376,15 @@ func (d *Database) Get(key []byte) ([]byte, error) {
 	if d.closed {
 		return nil, pebble.ErrClosed
 	}
+	st := time.Now()
 	dat, closer, err := d.db.Get(key)
+	if err == nil {
+		d.readExistedCount.Inc(1)
+		d.readExistedTime.Inc(time.Since(st).Nanoseconds())
+	} else if err == pebble.ErrNotFound {
+		d.readNotfoundCount.Inc(1)
+		d.readNotfoundTime.Inc(time.Since(st).Nanoseconds())
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -325,6 +403,8 @@ func (d *Database) Put(key []byte, value []byte) error {
 	if d.closed {
 		return pebble.ErrClosed
 	}
+	d.writeCount.Inc(1)
+	defer func(st time.Time) { d.writeTime.Inc(time.Since(st).Nanoseconds()) }(time.Now())
 	return d.db.Set(key, value, d.writeOptions)
 }
 
@@ -493,9 +573,34 @@ func (d *Database) meter(refresh time.Duration, namespace string) {
 			// Append metrics for additional layers
 			if i >= len(d.levelsGauge) {
 				d.levelsGauge = append(d.levelsGauge, metrics.GetOrRegisterGauge(namespace+fmt.Sprintf("tables/level%v", i), nil))
+				d.levelsWriteAmp = append(d.levelsWriteAmp, metrics.GetOrRegisterGaugeFloat64(namespace+fmt.Sprintf("write/amp/level%d", i), nil))
 			}
 			d.levelsGauge[i].Update(level.NumFiles)
+			d.levelsWriteAmp[i].Update(level.WriteAmp())
 		}
+
+		d.blockCacheCount.Update(int64(stats.BlockCache.Count))
+		d.blockCacheSize.Update(int64(stats.BlockCache.Size))
+		d.blockCacheHits.Update(int64(stats.BlockCache.Hits))
+		d.blockCacheMiss.Update(int64(stats.BlockCache.Misses))
+		d.tableCacheCount.Update(int64(stats.TableCache.Count))
+		d.tableCacheSize.Update(int64(stats.TableCache.Size))
+		d.tableCacheHits.Update(int64(stats.TableCache.Hits))
+		d.tableCacheMiss.Update(int64(stats.TableCache.Misses))
+		d.filterHits.Update(int64(stats.Filter.Hits))
+		d.filterMiss.Update(int64(stats.Filter.Misses))
+		d.compCount.Update(int64(stats.Compact.Count))
+		d.compReadCount.Update(int64(stats.Compact.ReadCount))
+		d.compMoveCount.Update(int64(stats.Compact.MoveCount))
+		d.compMultiLevelCount.Update(int64(stats.Compact.MultiLevelCount))
+		d.compCounterLevelCount.Update(int64(stats.Compact.CounterLevelCount))
+		d.compInProgressBytes.Update(int64(stats.Compact.InProgressBytes))
+		d.compInnerTime.Update(stats.Compact.Duration.Nanoseconds())
+		d.ingestCount.Update(int64(stats.Ingest.Count))
+		d.flushCount.Update(int64(stats.Flush.Count))
+		d.readAmp.Update(int64(stats.ReadAmp()))
+		d.virtualSize.Update(int64(stats.VirtualSize()))
+		d.virtualCount.Update(int64(stats.NumVirtual()))
 
 		// Sleep a bit, then repeat the stats collection
 		select {
@@ -547,6 +652,8 @@ func (b *batch) Write() error {
 	if b.db.closed {
 		return pebble.ErrClosed
 	}
+	b.db.writeCount.Inc(1)
+	defer func(st time.Time) { b.db.writeTime.Inc(time.Since(st).Nanoseconds()) }(time.Now())
 	return b.b.Commit(b.db.writeOptions)
 }
 

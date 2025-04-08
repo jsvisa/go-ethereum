@@ -17,6 +17,8 @@
 package trie
 
 import (
+	"sync"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -171,8 +173,7 @@ func (t *StateTrie) MustUpdate(key, value []byte) {
 //
 // If a node is not found in the database, a MissingNodeError is returned.
 func (t *StateTrie) UpdateStorage(_ common.Address, key, value []byte) error {
-	hk := t.hashKey(key)
-	v, _ := rlp.EncodeToBytes(value)
+	hk, v, _ := t.getHashKeyAndRLPData(key, value)
 	err := t.trie.Update(hk, v)
 	if err != nil {
 		return err
@@ -183,8 +184,7 @@ func (t *StateTrie) UpdateStorage(_ common.Address, key, value []byte) error {
 
 // UpdateAccount will abstract the write of an account to the secure trie.
 func (t *StateTrie) UpdateAccount(address common.Address, acc *types.StateAccount, _ int) error {
-	hk := t.hashKey(address.Bytes())
-	data, err := rlp.EncodeToBytes(acc)
+	hk, data, err := t.getHashKeyAndRLPData(address.Bytes(), acc)
 	if err != nil {
 		return err
 	}
@@ -226,11 +226,11 @@ func (t *StateTrie) DeleteAccount(address common.Address) error {
 // GetKey returns the sha3 preimage of a hashed key that was
 // previously used to store a value.
 func (t *StateTrie) GetKey(shaKey []byte) []byte {
-	if key, ok := t.getSecKeyCache()[string(shaKey)]; ok {
-		return key
-	}
 	if t.preimages == nil {
 		return nil
+	}
+	if key, ok := t.getSecKeyCache()[string(shaKey)]; ok {
+		return key
 	}
 	return t.preimages.Preimage(common.BytesToHash(shaKey))
 }
@@ -316,4 +316,22 @@ func (t *StateTrie) getSecKeyCache() map[string][]byte {
 
 func (t *StateTrie) IsVerkle() bool {
 	return false
+}
+
+func (t *StateTrie) getHashKeyAndRLPData(key []byte, val any) (hk []byte, data []byte, err error) {
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		hk = t.hashKey(key)
+	}()
+
+	go func() {
+		defer wg.Done()
+		data, err = rlp.EncodeToBytes(val)
+	}()
+	wg.Wait()
+
+	return
 }

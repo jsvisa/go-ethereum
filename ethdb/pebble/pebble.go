@@ -215,7 +215,7 @@ func New(file string, cache int, handles int, namespace string, readonly bool, e
 		fn:           file,
 		log:          logger,
 		quitChan:     make(chan chan error),
-		writeOptions: &pebble.WriteOptions{Sync: !ephemeral},
+		writeOptions: &pebble.WriteOptions{Sync: false},
 	}
 
 	opt := &pebble.Options{

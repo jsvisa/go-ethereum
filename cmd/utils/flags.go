@@ -1591,7 +1591,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 			log.Warn("Lowering memory allowance on 32bit arch", "available", mem.Total/1024/1024, "addressable", 2*1024)
 			mem.Total = 2 * 1024 * 1024 * 1024
 		}
-		allowance := int(mem.Total / 1024 / 1024 / 3)
+		allowance := int(mem.Total / 1024 / 1024)
 		if cache := ctx.Int(CacheFlag.Name); cache > allowance {
 			log.Warn("Sanitizing cache to Go's GC limits", "provided", cache, "updated", allowance)
 			ctx.Set(CacheFlag.Name, strconv.Itoa(allowance))

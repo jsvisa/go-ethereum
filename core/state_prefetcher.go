@@ -17,12 +17,14 @@
 package core
 
 import (
+	"runtime"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+	"golang.org/x/sync/errgroup"
 )
 
 // statePrefetcher is a basic Prefetcher, which blindly executes a block on top
@@ -46,38 +48,45 @@ func newStatePrefetcher(config *params.ChainConfig, chain *HeaderChain) *statePr
 // only goal is to pre-cache transaction signatures and state trie nodes.
 func (p *statePrefetcher) Prefetch(block *types.Block, statedb *state.StateDB, cfg vm.Config, interrupt *atomic.Bool) {
 	var (
-		header       = block.Header()
-		gaspool      = new(GasPool).AddGas(block.GasLimit())
-		blockContext = NewEVMBlockContext(header, p.chain, nil)
-		evm          = vm.NewEVM(blockContext, statedb, p.config, cfg)
-		signer       = types.MakeSigner(p.config, header.Number, header.Time)
+		header  = block.Header()
+		signer  = types.MakeSigner(p.config, header.Number, header.Time)
+		txs     = block.Transactions()
+		fails   atomic.Int64
+		workers errgroup.Group
 	)
-	// Iterate over and process the individual transactions
-	byzantium := p.config.IsByzantium(block.Number())
-	for i, tx := range block.Transactions() {
-		// If block precaching was interrupted, abort
-		if interrupt != nil && interrupt.Load() {
-			return
-		}
-		// Convert the transaction into an executable message and pre-cache its sender
-		msg, err := TransactionToMessage(tx, signer, header.BaseFee)
-		if err != nil {
-			return // Also invalid block, bail out
-		}
-		statedb.SetTxContext(tx.Hash(), i)
+	workers.SetLimit(min(runtime.NumCPU()/2, len(txs)))
 
-		// We attempt to apply a transaction. The goal is not to execute
-		// the transaction successfully, rather to warm up touched data slots.
-		if _, err := ApplyMessage(evm, msg, gaspool); err != nil {
-			return // Ugh, something went horribly wrong, bail out
-		}
-		// If we're pre-byzantium, pre-load trie nodes for the intermediate root
-		if !byzantium {
-			statedb.IntermediateRoot(true)
-		}
+	// Iterate over and process the individual transactions
+	for i, tx := range txs {
+		stateCpy := statedb.Copy() // closure
+		workers.Go(func() error {
+			// If block precaching was interrupted, abort
+			if interrupt != nil && interrupt.Load() {
+				return nil
+			}
+			// Convert the transaction into an executable message and pre-cache its sender
+			msg, err := TransactionToMessage(tx, signer, header.BaseFee)
+			if err != nil {
+				fails.Add(1)
+				return nil // Also invalid block, bail out
+			}
+			msg.SkipNonceChecks = true
+			msg.SkipFromEOACheck = true
+
+			// We attempt to apply a transaction. The goal is not to execute
+			// the transaction successfully, rather to warm up touched data slots.
+			stateCpy.SetTxContext(tx.Hash(), i)
+			evm := vm.NewEVM(NewEVMBlockContext(header, p.chain, nil), stateCpy, p.config, cfg)
+			if _, err := ApplyMessage(evm, msg, new(GasPool).AddGas(block.GasLimit())); err != nil {
+				fails.Add(1)
+				return nil // Ugh, something went horribly wrong, bail out
+			}
+			stateCpy.IntermediateRoot(true)
+			return nil
+		})
 	}
-	// If were post-byzantium, pre-load trie nodes for the final root hash
-	if byzantium {
-		statedb.IntermediateRoot(true)
-	}
+	workers.Wait()
+
+	blockPrefetchTxsValidMeter.Mark(int64(txs.Len()) - fails.Load())
+	blockPrefetchTxsInvalidMeter.Mark(fails.Load())
 }

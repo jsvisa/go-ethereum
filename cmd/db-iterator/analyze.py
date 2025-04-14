@@ -131,10 +131,10 @@ def analyze_val_count():
     df["step"] = df["length"].apply(step_of)
     df.groupby(["step"]).agg({"count": "sum", "percentage": "sum"}).reset_index()
     # Out[78]:
-    #    step       count  percentage
-    # 0   <16  3762937229       58.74
-    # 1   <64  1623984858       25.34
-    # 2  <128   855029504       13.33
+    #    step       count  percentage cum-percentage
+    # 0   <16  3762937229       58.74   58.74
+    # 1   <64  1623984858       25.34   84.08
+    # 2  <128   855029504       13.33   97.41
     # 3  <1kb   164608814        2.51
     # 4  <1mb      466160        0.00
     # 5  <4kb      351524        0.00

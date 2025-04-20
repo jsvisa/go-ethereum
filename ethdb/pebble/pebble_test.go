@@ -35,7 +35,7 @@ func TestPebbleDB(t *testing.T) {
 				t.Fatal(err)
 			}
 			return &Database{
-				db: db,
+				db1: db,
 			}
 		})
 	})
@@ -50,7 +50,7 @@ func BenchmarkPebbleDB(b *testing.B) {
 			b.Fatal(err)
 		}
 		return &Database{
-			db: db,
+			db1: db,
 		}
 	})
 }

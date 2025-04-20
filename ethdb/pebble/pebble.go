@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,16 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 )
+
+func useBlockDB(key []byte) bool {
+	prefix := key[0]
+	switch prefix {
+	case 'b', 'r':
+		return true
+	default:
+		return false
+	}
+}
 
 const (
 	// minCache is the minimum amount of memory in megabytes to allocate to pebble
@@ -55,8 +66,9 @@ const (
 // Apart from basic data storage functionality it also supports batch writes and
 // iterating over the keyspace in binary-alphabetical order.
 type Database struct {
-	fn string     // filename for reporting
-	db *pebble.DB // Underlying pebble storage engine
+	fn  string     // filename for reporting
+	db1 *pebble.DB // Underlying pebble storage engine(main db)
+	db2 *pebble.DB // Underlying pebble storage engine(only used to store the block body && receipts)
 
 	compTimeMeter       *metrics.Meter // Meter for measuring the total time spent in database compaction
 	compReadMeter       *metrics.Meter // Meter for measuring the data read during compaction
@@ -238,7 +250,19 @@ func New(file string, cache int, handles int, namespace string, readonly bool, e
 	if err != nil {
 		return nil, err
 	}
-	db.db = innerDB
+	db.db1 = innerDB
+
+	var blockFile string
+	if strings.HasSuffix(file, "/") {
+		blockFile = file[:len(file)-2] + "-block"
+	} else {
+		blockFile = file + "-block"
+	}
+	blockDB, err := pebble.Open(blockFile, &pebble.Options{})
+	if err != nil {
+		return nil, err
+	}
+	db.db2 = blockDB
 
 	db.compTimeMeter = metrics.GetOrRegisterMeter(namespace+"compact/time", nil)
 	db.compReadMeter = metrics.GetOrRegisterMeter(namespace+"compact/input", nil)
@@ -277,7 +301,7 @@ func (d *Database) Close() error {
 		}
 		d.quitChan = nil
 	}
-	return d.db.Close()
+	return d.db1.Close()
 }
 
 // Has retrieves if a key is present in the key-value store.
@@ -287,7 +311,11 @@ func (d *Database) Has(key []byte) (bool, error) {
 	if d.closed {
 		return false, pebble.ErrClosed
 	}
-	_, closer, err := d.db.Get(key)
+	db := d.db1
+	if useBlockDB(key) {
+		db = d.db2
+	}
+	_, closer, err := db.Get(key)
 	if err == pebble.ErrNotFound {
 		return false, nil
 	} else if err != nil {
@@ -306,7 +334,11 @@ func (d *Database) Get(key []byte) ([]byte, error) {
 	if d.closed {
 		return nil, pebble.ErrClosed
 	}
-	dat, closer, err := d.db.Get(key)
+	db := d.db1
+	if useBlockDB(key) {
+		db = d.db2
+	}
+	dat, closer, err := db.Get(key)
 	if err != nil {
 		return nil, err
 	}
@@ -325,7 +357,11 @@ func (d *Database) Put(key []byte, value []byte) error {
 	if d.closed {
 		return pebble.ErrClosed
 	}
-	return d.db.Set(key, value, d.writeOptions)
+	db := d.db1
+	if useBlockDB(key) {
+		db = d.db2
+	}
+	return db.Set(key, value, d.writeOptions)
 }
 
 // Delete removes the key from the key-value store.
@@ -335,7 +371,11 @@ func (d *Database) Delete(key []byte) error {
 	if d.closed {
 		return pebble.ErrClosed
 	}
-	return d.db.Delete(key, d.writeOptions)
+	db := d.db1
+	if useBlockDB(key) {
+		db = d.db2
+	}
+	return db.Delete(key, d.writeOptions)
 }
 
 // DeleteRange deletes all of the keys (and values) in the range [start,end)
@@ -346,14 +386,15 @@ func (d *Database) DeleteRange(start, end []byte) error {
 	if d.closed {
 		return pebble.ErrClosed
 	}
-	return d.db.DeleteRange(start, end, d.writeOptions)
+	return d.db1.DeleteRange(start, end, d.writeOptions)
 }
 
 // NewBatch creates a write-only key-value store that buffers changes to its host
 // database until a final write is called.
 func (d *Database) NewBatch() ethdb.Batch {
 	return &batch{
-		b:  d.db.NewBatch(),
+		b1: d.db1.NewBatch(),
+		b2: d.db2.NewBatch(),
 		db: d,
 	}
 }
@@ -361,7 +402,8 @@ func (d *Database) NewBatch() ethdb.Batch {
 // NewBatchWithSize creates a write-only database batch with pre-allocated buffer.
 func (d *Database) NewBatchWithSize(size int) ethdb.Batch {
 	return &batch{
-		b:  d.db.NewBatchWithSize(size),
+		b1: d.db1.NewBatchWithSize(size),
+		b2: d.db2.NewBatchWithSize(size),
 		db: d,
 	}
 }
@@ -384,7 +426,7 @@ func upperBound(prefix []byte) (limit []byte) {
 // Stat returns the internal metrics of Pebble in a text format. It's a developer
 // method to read everything there is to read, independent of Pebble version.
 func (d *Database) Stat() (string, error) {
-	return d.db.Metrics().String(), nil
+	return d.db1.Metrics().String(), nil
 }
 
 // Compact flattens the underlying data store for the given key range. In essence,
@@ -406,7 +448,7 @@ func (d *Database) Compact(start []byte, limit []byte) error {
 	if limit == nil {
 		limit = bytes.Repeat([]byte{0xff}, 32)
 	}
-	return d.db.Compact(start, limit, true) // Parallelization is preferred
+	return d.db1.Compact(start, limit, true) // Parallelization is preferred
 }
 
 // Path returns the path to the database directory.
@@ -441,7 +483,7 @@ func (d *Database) meter(refresh time.Duration, namespace string) {
 			compRead  int64
 			nWrite    int64
 
-			stats              = d.db.Metrics()
+			stats              = d.db1.Metrics()
 			compTime           = d.compTime.Load()
 			writeDelayCount    = d.writeDelayCount.Load()
 			writeDelayTime     = d.writeDelayTime.Load()
@@ -512,14 +554,19 @@ func (d *Database) meter(refresh time.Duration, namespace string) {
 // batch is a write-only batch that commits changes to its host database
 // when Write is called. A batch cannot be used concurrently.
 type batch struct {
-	b    *pebble.Batch
+	b1   *pebble.Batch
+	b2   *pebble.Batch
 	db   *Database
 	size int
 }
 
 // Put inserts the given value into the batch for later committing.
 func (b *batch) Put(key, value []byte) error {
-	if err := b.b.Set(key, value, nil); err != nil {
+	bb := b.b1
+	if useBlockDB(key) {
+		bb = b.b2
+	}
+	if err := bb.Set(key, value, nil); err != nil {
 		return err
 	}
 	b.size += len(key) + len(value)
@@ -528,7 +575,11 @@ func (b *batch) Put(key, value []byte) error {
 
 // Delete inserts the key removal into the batch for later committing.
 func (b *batch) Delete(key []byte) error {
-	if err := b.b.Delete(key, nil); err != nil {
+	bb := b.b1
+	if useBlockDB(key) {
+		bb = b.b2
+	}
+	if err := bb.Delete(key, nil); err != nil {
 		return err
 	}
 	b.size += len(key)
@@ -547,21 +598,54 @@ func (b *batch) Write() error {
 	if b.db.closed {
 		return pebble.ErrClosed
 	}
-	return b.b.Commit(b.db.writeOptions)
+	err := b.b1.Commit(b.db.writeOptions)
+	if err != nil {
+		return err
+	}
+	return b.b2.Commit(b.db.writeOptions)
 }
 
 // Reset resets the batch for reuse.
 func (b *batch) Reset() {
-	b.b.Reset()
+	b.b1.Reset()
+	b.b2.Reset()
 	b.size = 0
 }
 
 // Replay replays the batch contents.
 func (b *batch) Replay(w ethdb.KeyValueWriter) error {
-	reader := b.b.Reader()
+	reader := b.b1.Reader()
 	for {
 		kind, k, v, ok, err := reader.Next()
-		if !ok || err != nil {
+		if !ok {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		// The (k,v) slices might be overwritten if the batch is reset/reused,
+		// and the receiver should copy them if they are to be retained long-term.
+		if kind == pebble.InternalKeyKindSet {
+			if err = w.Put(k, v); err != nil {
+				return err
+			}
+		} else if kind == pebble.InternalKeyKindDelete {
+			if err = w.Delete(k); err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf("unhandled operation, keytype: %v", kind)
+		}
+	}
+
+	reader = b.b2.Reader()
+	for {
+		kind, k, v, ok, err := reader.Next()
+		if !ok {
+			break
+		}
+		if err != nil {
 			return err
 		}
 		// The (k,v) slices might be overwritten if the batch is reset/reused,
@@ -578,6 +662,7 @@ func (b *batch) Replay(w ethdb.KeyValueWriter) error {
 			return fmt.Errorf("unhandled operation, keytype: %v", kind)
 		}
 	}
+	return nil
 }
 
 // pebbleIterator is a wrapper of underlying iterator in storage engine.
@@ -594,7 +679,7 @@ type pebbleIterator struct {
 // of database content with a particular key prefix, starting at a particular
 // initial key (or after, if it does not exist).
 func (d *Database) NewIterator(prefix []byte, start []byte) ethdb.Iterator {
-	iter, _ := d.db.NewIter(&pebble.IterOptions{
+	iter, _ := d.db1.NewIter(&pebble.IterOptions{
 		LowerBound: append(prefix, start...),
 		UpperBound: upperBound(prefix),
 	})

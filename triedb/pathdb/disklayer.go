@@ -453,6 +453,8 @@ func (dl *diskLayer) commit(bottom *diffLayer, force bool) (*diskLayer, error) {
 			return nil, err
 		}
 		log.Debug("Pruned state history", "items", pruned, "tailid", oldest)
+		// Prune state history indices for blocks before oldest
+		pruneStateHistoryIndices(ndl.db.diskdb, ndl.db.freezer, oldest)
 	}
 	return ndl, nil
 }

@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -671,99 +670,5 @@ func (i *historyIndexer) progress() (uint64, error) {
 		return 0, errors.New("indexer is closed")
 	default:
 		return i.initer.remain(), nil
-	}
-}
-
-// pruneStateHistoryIndices prunes all state index blocks whose max is less than oldestHistoryID.
-func pruneStateHistoryIndices(db ethdb.KeyValueStore, freezer ethdb.AncientReader, oldestHistoryID uint64) {
-	log.Info("Pruning state history indices", "oldestHistoryID", oldestHistoryID)
-
-	batch := db.NewBatch()
-	prunedAccounts := 0
-	prunedStorages := 0
-
-	// Prune account indices
-	it := db.NewIterator(rawdb.StateHistoryAccountMetadataPrefix, nil)
-	defer it.Release()
-	for it.Next() {
-		key := it.Key()
-		if len(key) != len(rawdb.StateHistoryAccountMetadataPrefix)+common.HashLength {
-			continue // skip malformed keys
-		}
-		addrHash := common.BytesToHash(key[len(rawdb.StateHistoryAccountMetadataPrefix):])
-		blob := it.Value()
-		descList, err := parseIndex(blob)
-		if err != nil || len(descList) == 0 {
-			continue
-		}
-		// Find the first block whose max >= oldestHistoryID
-		idx := sort.Search(len(descList), func(i int) bool {
-			return descList[i].max >= oldestHistoryID
-		})
-		if idx == 0 {
-			continue // nothing to prune
-		}
-		// Prune blocks from the head
-		pruned := descList[:idx]
-		remain := descList[idx:]
-		for _, desc := range pruned {
-			rawdb.DeleteAccountHistoryIndexBlock(batch, addrHash, desc.id)
-		}
-		if len(remain) == 0 {
-			rawdb.DeleteAccountHistoryIndex(batch, addrHash)
-		} else {
-			buf := make([]byte, 0, indexBlockDescSize*len(remain))
-			for _, desc := range remain {
-				buf = append(buf, desc.encode()...)
-			}
-			rawdb.WriteAccountHistoryIndex(batch, addrHash, buf)
-		}
-		prunedAccounts++
-	}
-
-	// Prune storage indices
-	it2 := db.NewIterator(rawdb.StateHistoryStorageMetadataPrefix, nil)
-	defer it2.Release()
-	for it2.Next() {
-		key := it2.Key()
-		if len(key) != len(rawdb.StateHistoryStorageMetadataPrefix)+common.HashLength*2 {
-			continue // skip malformed keys
-		}
-		addrHash := common.BytesToHash(key[len(rawdb.StateHistoryStorageMetadataPrefix) : len(rawdb.StateHistoryStorageMetadataPrefix)+common.HashLength])
-		storageHash := common.BytesToHash(key[len(rawdb.StateHistoryStorageMetadataPrefix)+common.HashLength:])
-		blob := it2.Value()
-		descList, err := parseIndex(blob)
-		if err != nil || len(descList) == 0 {
-			continue
-		}
-		// Find the first block whose max >= oldestHistoryID
-		idx := sort.Search(len(descList), func(i int) bool {
-			return descList[i].max >= oldestHistoryID
-		})
-		if idx == 0 {
-			continue // nothing to prune
-		}
-		// Prune blocks from the head
-		pruned := descList[:idx]
-		remain := descList[idx:]
-		for _, desc := range pruned {
-			rawdb.DeleteStorageHistoryIndexBlock(batch, addrHash, storageHash, desc.id)
-		}
-		if len(remain) == 0 {
-			rawdb.DeleteStorageHistoryIndex(batch, addrHash, storageHash)
-		} else {
-			buf := make([]byte, 0, indexBlockDescSize*len(remain))
-			for _, desc := range remain {
-				buf = append(buf, desc.encode()...)
-			}
-			rawdb.WriteStorageHistoryIndex(batch, addrHash, storageHash, buf)
-		}
-		prunedStorages++
-	}
-
-	if err := batch.Write(); err != nil {
-		log.Error("Failed to prune state history indices", "err", err)
-	} else {
-		log.Info("Pruned state history indices", "accounts", prunedAccounts, "storages", prunedStorages)
 	}
 }

@@ -18,10 +18,12 @@ package pathdb
 
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/trie/trienode"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -36,6 +38,9 @@ func storageKey(accountHash common.Hash, slotHash common.Hash) [64]byte {
 // lookup is an internal structure used to efficiently determine the layer in
 // which a state entry resides.
 type lookup struct {
+	nodes   map[common.Hash]map[string][]common.Hash
+	nodesMu sync.RWMutex // Protect concurrent access to nodes map
+
 	// accounts represents the mutation history for specific accounts.
 	// The key is the account address hash, and the value is a slice
 	// of **diff layer** IDs indicating where the account was modified,
@@ -64,6 +69,7 @@ func newLookup(head layer, descendant func(state common.Hash, ancestor common.Ha
 		current = current.parentLayer()
 	}
 	l := &lookup{
+		nodes:      make(map[common.Hash]map[string][]common.Hash),
 		accounts:   make(map[common.Hash][]common.Hash),
 		storages:   make(map[[64]byte][]common.Hash),
 		descendant: descendant,
@@ -204,6 +210,82 @@ func (l *lookup) addLayer(diff *diffLayer) {
 			}
 		}
 	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		l.addNodes(state, diff.nodes.accountNodes, diff.nodes.storageNodes)
+	}()
+	wg.Wait()
+}
+
+func (l *lookup) addNodes(state common.Hash, accountNodes map[string]*trienode.Node, storageNodes map[common.Hash]map[string]*trienode.Node) {
+	addNodes := func(accountHash common.Hash, subset map[string]*trienode.Node) {
+		l.nodesMu.RLock()
+		store, exists := l.nodes[accountHash]
+		l.nodesMu.RUnlock()
+		if !exists {
+			store = make(map[string][]common.Hash, len(subset))
+		}
+		for path := range subset {
+			list, exists := store[path]
+			if !exists {
+				list = make([]common.Hash, 0, 16)
+			}
+			list = append(list, state)
+			store[path] = list
+		}
+		l.nodesMu.Lock()
+		l.nodes[accountHash] = store
+		l.nodesMu.Unlock()
+	}
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		addNodes(common.Hash{}, accountNodes)
+	}()
+
+	if len(storageNodes) == 0 {
+		wg.Wait()
+		return
+	}
+
+	workers := runtime.NumCPU() / 2
+	tasks := len(storageNodes)
+
+	accountHashes := make([]common.Hash, 0, tasks)
+	for accountHash := range storageNodes {
+		accountHashes = append(accountHashes, accountHash)
+	}
+
+	if workers > tasks {
+		workers = tasks
+	}
+
+	batchSize := (tasks + workers - 1) / workers
+
+	for i := 0; i < workers; i++ {
+		start := i * batchSize
+		if start >= len(accountHashes) {
+			continue
+		}
+		end := start + batchSize
+		if end > len(accountHashes) {
+			end = len(accountHashes)
+		}
+
+		wg.Add(1)
+		go func(batch []common.Hash) {
+			defer wg.Done()
+			for _, accountHash := range batch {
+				subset := storageNodes[accountHash]
+				addNodes(accountHash, subset)
+			}
+		}(accountHashes[start:end])
+	}
 	wg.Wait()
 }
 

@@ -38,8 +38,7 @@ func storageKey(accountHash common.Hash, slotHash common.Hash) [64]byte {
 // lookup is an internal structure used to efficiently determine the layer in
 // which a state entry resides.
 type lookup struct {
-	nodes   map[common.Hash]map[string][]common.Hash
-	nodesMu sync.RWMutex // Protect concurrent access to nodes map
+	nodes map[common.Hash]map[string][]common.Hash
 
 	// accounts represents the mutation history for specific accounts.
 	// The key is the account address hash, and the value is a slice
@@ -220,72 +219,60 @@ func (l *lookup) addLayer(diff *diffLayer) {
 }
 
 func (l *lookup) addNodes(state common.Hash, accountNodes map[string]*trienode.Node, storageNodes map[common.Hash]map[string]*trienode.Node) {
-	addNodes := func(accountHash common.Hash, subset map[string]*trienode.Node) {
-		l.nodesMu.RLock()
-		store, exists := l.nodes[accountHash]
-		l.nodesMu.RUnlock()
-		if !exists {
-			store = make(map[string][]common.Hash, len(subset))
-		}
-		for path := range subset {
-			list, exists := store[path]
-			if !exists {
-				list = make([]common.Hash, 0, 16)
-			}
-			list = append(list, state)
-			store[path] = list
-		}
-		l.nodesMu.Lock()
-		l.nodes[accountHash] = store
-		l.nodesMu.Unlock()
+	workers := runtime.NumCPU() / 2 // Don't drain all cpu resources
+	if workers > len(storageNodes) {
+		workers = len(storageNodes)
 	}
 
-	var wg sync.WaitGroup
+	type task struct {
+		nodes map[string]*trienode.Node
+		store map[string][]common.Hash
+	}
+	var (
+		wg    sync.WaitGroup
+		tasks = make(chan *task, workers+1)
+	)
+
+	addNodes := func(accountHash common.Hash, subset map[string]*trienode.Node) {
+		store := l.nodes[accountHash]
+		if store == nil {
+			store = make(map[string][]common.Hash)
+			l.nodes[accountHash] = store
+		}
+		tasks <- &task{
+			nodes: subset,
+			store: store,
+		}
+
+	}
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for t := range tasks {
+				// Put the layer hash at the end of the list
+				for path := range t.nodes {
+					if _, exists := t.store[path]; !exists {
+						t.store[path] = make([]common.Hash, 0, 16)
+					}
+					t.store[path] = append(t.store[path], state)
+				}
+			}
+		}()
+	}
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		addNodes(common.Hash{}, accountNodes)
+
+		addNodes(common.Hash{}, accountNodes) // Add the main account trie nodes
+		for accountHash, subset := range storageNodes {
+			addNodes(accountHash, subset)
+		}
+		close(tasks)
 	}()
-
-	if len(storageNodes) == 0 {
-		wg.Wait()
-		return
-	}
-
-	workers := runtime.NumCPU() / 2
-	tasks := len(storageNodes)
-
-	accountHashes := make([]common.Hash, 0, tasks)
-	for accountHash := range storageNodes {
-		accountHashes = append(accountHashes, accountHash)
-	}
-
-	if workers > tasks {
-		workers = tasks
-	}
-
-	batchSize := (tasks + workers - 1) / workers
-
-	for i := 0; i < workers; i++ {
-		start := i * batchSize
-		if start >= len(accountHashes) {
-			continue
-		}
-		end := start + batchSize
-		if end > len(accountHashes) {
-			end = len(accountHashes)
-		}
-
-		wg.Add(1)
-		go func(batch []common.Hash) {
-			defer wg.Done()
-			for _, accountHash := range batch {
-				subset := storageNodes[accountHash]
-				addNodes(accountHash, subset)
-			}
-		}(accountHashes[start:end])
-	}
 	wg.Wait()
 }
 

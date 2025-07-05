@@ -343,5 +343,37 @@ func (l *lookup) removeLayer(diff *diffLayer) error {
 		}
 		return nil
 	})
+
+	eg.Go(func() error {
+		accountHash := common.Hash{}
+		for path := range diff.nodes.accountNodes {
+			found, list := removeFromList(l.nodes[accountHash][path], state)
+			if !found {
+				return fmt.Errorf("account lookup is not found, %x, state: %x", accountHash, state)
+			}
+			if len(list) != 0 {
+				l.nodes[accountHash][path] = list
+			} else {
+				delete(l.nodes[accountHash], path)
+			}
+		}
+		return nil
+	})
+	eg.Go(func() error {
+		for accountHash := range diff.nodes.storageNodes {
+			for path := range diff.nodes.accountNodes {
+				found, list := removeFromList(l.nodes[accountHash][path], state)
+				if !found {
+					return fmt.Errorf("account lookup is not found, %x, state: %x", accountHash, state)
+				}
+				if len(list) != 0 {
+					l.nodes[accountHash][path] = list
+				} else {
+					delete(l.nodes[accountHash], path)
+				}
+			}
+		}
+		return nil
+	})
 	return eg.Wait()
 }

@@ -359,16 +359,71 @@ func (l *lookup) processNodeChunk(state common.Hash, accountHash common.Hash, no
 	}
 	st2 := time.Now()
 
-	// Process nodes with optimized memory allocation
-	for path := range nodes {
-		if _, exists := store[path]; !exists {
-			store[path] = make([]common.Hash, 0, 16)
+	// For large chunks, process nodes in parallel to improve performance
+	if len(nodes) > 1000 {
+		l.processNodesParallel(state, store, nodes)
+	} else {
+		// Process nodes sequentially for smaller chunks
+		for path := range nodes {
+			if _, exists := store[path]; !exists {
+				store[path] = make([]common.Hash, 0, 16)
+			}
+			store[path] = append(store[path], state)
 		}
-		store[path] = append(store[path], state)
 	}
 	st3 := time.Now()
 
-	log.Info("PathDB lookup add nodes chunk", "hash", accountHash.Hex(), "st01", st1.Sub(st0), "st12", st2.Sub(st1), "st23", st3.Sub(st2))
+	log.Info("PathDB lookup add nodes chunk", "hash", accountHash.Hex(), "nodes", len(nodes), "st01", st1.Sub(st0), "st12", st2.Sub(st1), "st23", st3.Sub(st2))
+}
+
+// processNodesParallel processes nodes in parallel for large chunks
+func (l *lookup) processNodesParallel(state common.Hash, store map[string][]common.Hash, nodes map[string]*trienode.Node) {
+	// Convert map to slice for easier parallel processing
+	type nodeEntry struct {
+		path string
+		node *trienode.Node
+	}
+
+	nodeEntries := make([]nodeEntry, 0, len(nodes))
+	for path, node := range nodes {
+		nodeEntries = append(nodeEntries, nodeEntry{path, node})
+	}
+
+	workers := runtime.NumCPU()
+	if workers > len(nodeEntries) {
+		workers = len(nodeEntries)
+	}
+	batchSize := (len(nodeEntries) + workers - 1) / workers
+
+	var wg sync.WaitGroup
+	localStores := make([]map[string][]common.Hash, workers)
+	for i := 0; i < workers; i++ {
+		localStores[i] = make(map[string][]common.Hash)
+		wg.Add(1)
+		go func(idx, start int) {
+			defer wg.Done()
+			end := start + batchSize
+			if end > len(nodeEntries) {
+				end = len(nodeEntries)
+			}
+			local := localStores[idx]
+			for j := start; j < end; j++ {
+				entry := nodeEntries[j]
+				local[entry.path] = append(local[entry.path], state)
+			}
+		}(i, i*batchSize)
+	}
+	wg.Wait()
+
+	// Merge local stores into the shared store (single-threaded, safe)
+	for i := 0; i < workers; i++ {
+		for path, hashes := range localStores[i] {
+			if _, exists := store[path]; !exists {
+				store[path] = make([]common.Hash, 0, len(hashes))
+			}
+			store[path] = append(store[path], hashes...)
+		}
+	}
 }
 
 // removeFromList removes the specified element from the provided list.

@@ -284,28 +284,23 @@ func (l *lookup) addNodes(state common.Hash, accountNodes map[string]*trienode.N
 		return
 	}
 
-	// Split work into chunks for better load balancing
+	// Split work into equal-sized batches for better load balancing
 	type workChunk struct {
 		hash  common.Hash
 		nodes map[string]*trienode.Node
 	}
 
+	// Calculate batch size to distribute work evenly
+	batchSize := (totalWork + workers - 1) / workers
+
 	var (
 		mu        sync.Mutex
 		wg        sync.WaitGroup
-		chunks    = make([]workChunk, 0, 1+len(storageNodes))
-		chunkChan = make(chan workChunk, len(chunks))
+		chunkChan = make(chan workChunk, workers)
 	)
+	log.Info("PathDB lookup add nodes", "workers", workers, "batchSize", batchSize, "totalWork", totalWork)
 
-	if len(accountNodes) > 0 {
-		chunks = append(chunks, workChunk{common.Hash{}, accountNodes})
-	}
-	for accountHash, subset := range storageNodes {
-		if len(subset) > 0 {
-			chunks = append(chunks, workChunk{accountHash, subset})
-		}
-	}
-
+	// Start workers first
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
@@ -316,9 +311,57 @@ func (l *lookup) addNodes(state common.Hash, accountNodes map[string]*trienode.N
 		}()
 	}
 
-	for _, chunk := range chunks {
-		chunkChan <- chunk
+	// Split into batches and send directly to channel
+	currentBatch := make(map[string]*trienode.Node, batchSize)
+	currentBatchSize := 0
+	currentAccountHash := common.Hash{}
+
+	// Process account nodes first
+	for path, node := range accountNodes {
+		if currentBatchSize >= batchSize {
+			// Flush current batch
+			if len(currentBatch) > 0 {
+				chunkChan <- workChunk{currentAccountHash, currentBatch}
+			}
+			// Start new batch
+			currentBatch = make(map[string]*trienode.Node, batchSize)
+			currentBatchSize = 0
+			currentAccountHash = common.Hash{}
+		}
+		currentBatch[path] = node
+		currentBatchSize++
 	}
+
+	// Process storage nodes - keep nodes from same account together
+	for accountHash, subset := range storageNodes {
+		// Start a new batch for each account to avoid mixing
+		if len(currentBatch) > 0 {
+			chunkChan <- workChunk{currentAccountHash, currentBatch}
+			currentBatch = make(map[string]*trienode.Node)
+			currentBatchSize = 0
+		}
+		currentAccountHash = accountHash
+
+		for path, node := range subset {
+			if currentBatchSize >= batchSize {
+				// Flush current batch
+				if len(currentBatch) > 0 {
+					chunkChan <- workChunk{currentAccountHash, currentBatch}
+				}
+				// Start new batch
+				currentBatch = make(map[string]*trienode.Node, batchSize)
+				currentBatchSize = 0
+			}
+			currentBatch[path] = node
+			currentBatchSize++
+		}
+	}
+
+	// Add the last batch if it has content
+	if len(currentBatch) > 0 {
+		chunkChan <- workChunk{currentAccountHash, currentBatch}
+	}
+
 	close(chunkChan)
 	wg.Wait()
 }

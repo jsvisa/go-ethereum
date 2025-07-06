@@ -263,61 +263,101 @@ func (l *lookup) addLayer(diff *diffLayer) {
 }
 
 func (l *lookup) addNodes(state common.Hash, accountNodes map[string]*trienode.Node, storageNodes map[common.Hash]map[string]*trienode.Node) {
-	workers := runtime.NumCPU() / 2 // Don't drain all cpu resources
-	if workers > len(storageNodes) {
-		workers = len(storageNodes)
+	// Calculate total work to determine optimal worker count
+	totalWork := len(accountNodes)
+	for _, subset := range storageNodes {
+		totalWork += len(subset)
 	}
 
-	type task struct {
-		nodes map[string]*trienode.Node
-		store map[string][]common.Hash
+	// Use more workers for larger workloads, but cap to avoid overhead
+	workers := runtime.NumCPU() / 2
+	if workers > totalWork {
+		workers = totalWork
 	}
+	if workers < 1 {
+		workers = 1
+	}
+
+	// For small workloads, process directly without goroutines
+	if totalWork < 100 || workers == 1 {
+		l.addNodesSequential(state, accountNodes, storageNodes)
+		return
+	}
+
+	// Split work into chunks for better load balancing
+	type workChunk struct {
+		hash  common.Hash
+		nodes map[string]*trienode.Node
+	}
+
 	var (
-		wg    sync.WaitGroup
-		tasks = make(chan *task, workers+1)
+		mu        sync.Mutex
+		wg        sync.WaitGroup
+		chunks    = make([]workChunk, 0, 1+len(storageNodes))
+		chunkChan = make(chan workChunk, len(chunks))
 	)
 
-	addNodes := func(accountHash common.Hash, subset map[string]*trienode.Node) {
-		store := l.nodes[accountHash]
-		if store == nil {
-			store = make(map[string][]common.Hash)
-			l.nodes[accountHash] = store
+	if len(accountNodes) > 0 {
+		chunks = append(chunks, workChunk{common.Hash{}, accountNodes})
+	}
+	for accountHash, subset := range storageNodes {
+		if len(subset) > 0 {
+			chunks = append(chunks, workChunk{accountHash, subset})
 		}
-		tasks <- &task{
-			nodes: subset,
-			store: store,
-		}
-
 	}
 
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-
-			for t := range tasks {
-				// Put the layer hash at the end of the list
-				for path := range t.nodes {
-					if _, exists := t.store[path]; !exists {
-						t.store[path] = make([]common.Hash, 0, 16)
-					}
-					t.store[path] = append(t.store[path], state)
-				}
+			for chunk := range chunkChan {
+				l.processNodeChunk(state, chunk.hash, chunk.nodes, &mu)
 			}
 		}()
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		addNodes(common.Hash{}, accountNodes) // Add the main account trie nodes
-		for accountHash, subset := range storageNodes {
-			addNodes(accountHash, subset)
-		}
-		close(tasks)
-	}()
+	for _, chunk := range chunks {
+		chunkChan <- chunk
+	}
+	close(chunkChan)
 	wg.Wait()
+}
+
+// addNodesSequential processes nodes without goroutines for small workloads
+func (l *lookup) addNodesSequential(state common.Hash, accountNodes map[string]*trienode.Node, storageNodes map[common.Hash]map[string]*trienode.Node) {
+	if len(accountNodes) > 0 {
+		l.processNodeChunk(state, common.Hash{}, accountNodes, nil)
+	}
+
+	if len(storageNodes) > 0 {
+		for accountHash, subset := range storageNodes {
+			if len(subset) > 0 {
+				l.processNodeChunk(state, accountHash, subset, nil)
+			}
+		}
+	}
+}
+
+// processNodeChunk processes a chunk of nodes for a specific account
+func (l *lookup) processNodeChunk(state common.Hash, accountHash common.Hash, nodes map[string]*trienode.Node, lock *sync.Mutex) {
+	if lock != nil {
+		lock.Lock()
+		defer lock.Unlock()
+	}
+
+	store := l.nodes[accountHash]
+	if store == nil {
+		store = make(map[string][]common.Hash, len(nodes))
+		l.nodes[accountHash] = store
+	}
+
+	// Process nodes with optimized memory allocation
+	for path := range nodes {
+		if _, exists := store[path]; !exists {
+			store[path] = make([]common.Hash, 0, 16)
+		}
+		store[path] = append(store[path], state)
+	}
 }
 
 // removeFromList removes the specified element from the provided list.

@@ -263,6 +263,7 @@ func (l *lookup) addLayer(diff *diffLayer) {
 }
 
 func (l *lookup) addNodes(state common.Hash, accountNodes map[string]*trienode.Node, storageNodes map[common.Hash]map[string]*trienode.Node) {
+	st0 := time.Now()
 	// Calculate total work to determine optimal worker count
 	totalWork := len(accountNodes)
 	for _, subset := range storageNodes {
@@ -290,15 +291,11 @@ func (l *lookup) addNodes(state common.Hash, accountNodes map[string]*trienode.N
 		nodes map[string]*trienode.Node
 	}
 
-	// Calculate batch size to distribute work evenly
-	batchSize := (totalWork + workers - 1) / workers
-
 	var (
 		mu        sync.Mutex
 		wg        sync.WaitGroup
 		chunkChan = make(chan workChunk, workers)
 	)
-	log.Info("PathDB lookup add nodes", "workers", workers, "batchSize", batchSize, "totalWork", totalWork)
 
 	// Start workers first
 	for i := 0; i < workers; i++ {
@@ -311,59 +308,22 @@ func (l *lookup) addNodes(state common.Hash, accountNodes map[string]*trienode.N
 		}()
 	}
 
-	// Split into batches and send directly to channel
-	currentBatch := make(map[string]*trienode.Node, batchSize)
-	currentBatchSize := 0
-	currentAccountHash := common.Hash{}
-
-	// Process account nodes first
-	for path, node := range accountNodes {
-		if currentBatchSize >= batchSize {
-			// Flush current batch
-			if len(currentBatch) > 0 {
-				chunkChan <- workChunk{currentAccountHash, currentBatch}
-			}
-			// Start new batch
-			currentBatch = make(map[string]*trienode.Node, batchSize)
-			currentBatchSize = 0
-			currentAccountHash = common.Hash{}
-		}
-		currentBatch[path] = node
-		currentBatchSize++
-	}
+	st1 := time.Now()
+	chunkChan <- workChunk{common.Hash{}, accountNodes}
 
 	// Process storage nodes - keep nodes from same account together
 	for accountHash, subset := range storageNodes {
-		// Start a new batch for each account to avoid mixing
-		if len(currentBatch) > 0 {
-			chunkChan <- workChunk{currentAccountHash, currentBatch}
-			currentBatch = make(map[string]*trienode.Node)
-			currentBatchSize = 0
-		}
-		currentAccountHash = accountHash
-
-		for path, node := range subset {
-			if currentBatchSize >= batchSize {
-				// Flush current batch
-				if len(currentBatch) > 0 {
-					chunkChan <- workChunk{currentAccountHash, currentBatch}
-				}
-				// Start new batch
-				currentBatch = make(map[string]*trienode.Node, batchSize)
-				currentBatchSize = 0
-			}
-			currentBatch[path] = node
-			currentBatchSize++
-		}
+		chunkChan <- workChunk{accountHash, subset}
 	}
 
-	// Add the last batch if it has content
-	if len(currentBatch) > 0 {
-		chunkChan <- workChunk{currentAccountHash, currentBatch}
-	}
-
+	st2 := time.Now()
 	close(chunkChan)
+	st3 := time.Now()
+
 	wg.Wait()
+	st4 := time.Now()
+
+	log.Info("PathDB addNode", "st01", st1.Sub(st0), "st12", st2.Sub(st1), "st23", st3.Sub(st2), "st34", st4.Sub(st3))
 }
 
 // addNodesSequential processes nodes without goroutines for small workloads
@@ -383,16 +343,21 @@ func (l *lookup) addNodesSequential(state common.Hash, accountNodes map[string]*
 
 // processNodeChunk processes a chunk of nodes for a specific account
 func (l *lookup) processNodeChunk(state common.Hash, accountHash common.Hash, nodes map[string]*trienode.Node, lock *sync.Mutex) {
+	st0 := time.Now()
 	if lock != nil {
 		lock.Lock()
-		defer lock.Unlock()
 	}
 
+	st1 := time.Now()
 	store := l.nodes[accountHash]
 	if store == nil {
 		store = make(map[string][]common.Hash, len(nodes))
 		l.nodes[accountHash] = store
 	}
+	if lock != nil {
+		lock.Unlock()
+	}
+	st2 := time.Now()
 
 	// Process nodes with optimized memory allocation
 	for path := range nodes {
@@ -401,6 +366,9 @@ func (l *lookup) processNodeChunk(state common.Hash, accountHash common.Hash, no
 		}
 		store[path] = append(store[path], state)
 	}
+	st3 := time.Now()
+
+	log.Info("PathDB lookup add nodes chunk", "hash", accountHash.Hex(), "st01", st1.Sub(st0), "st12", st2.Sub(st1), "st23", st3.Sub(st2))
 }
 
 // removeFromList removes the specified element from the provided list.

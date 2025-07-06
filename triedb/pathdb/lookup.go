@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/trie/trienode"
 	"golang.org/x/sync/errgroup"
 )
@@ -166,6 +167,27 @@ func (l *lookup) storageTip(accountHash common.Hash, slotHash common.Hash, state
 	return common.Hash{}
 }
 
+func (l *lookup) nodeTip(accountHash common.Hash, path string, stateID common.Hash, base common.Hash) common.Hash {
+	list := l.nodes[accountHash][path]
+	for i := len(list) - 1; i >= 0; i-- {
+		// If the current state matches the stateID, or the requested state is a
+		// descendant of it, return the current state as the most recent one
+		// containing the modified data. Otherwise, the current state may be ahead
+		// of the requested one or belong to a different branch.
+		if list[i] == stateID || l.descendant(stateID, list[i]) {
+			return list[i]
+		}
+	}
+	// No layer matching the stateID or its descendants was found. Use the
+	// current disk layer as a fallback.
+	if base == stateID || l.descendant(stateID, base) {
+		return base
+	}
+	// The layer associated with 'stateID' is not the descendant of the current
+	// disk layer, it's already stale, return nothing.
+	return common.Hash{}
+}
+
 // addLayer traverses the state data retained in the specified diff layer and
 // integrates it into the lookup set.
 //
@@ -179,11 +201,15 @@ func (l *lookup) addLayer(diff *diffLayer) {
 
 	var (
 		wg    sync.WaitGroup
+		st    = time.Now()
 		state = diff.rootHash()
 	)
+
+	var accountTime, storageTime, trieTime time.Duration
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		st := time.Now()
 		for accountHash := range diff.states.accountData {
 			list, exists := l.accounts[accountHash]
 			if !exists {
@@ -192,11 +218,13 @@ func (l *lookup) addLayer(diff *diffLayer) {
 			list = append(list, state)
 			l.accounts[accountHash] = list
 		}
+		accountTime = time.Since(st)
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		st := time.Now()
 		for accountHash, slots := range diff.states.storageData {
 			for slotHash := range slots {
 				key := storageKey(accountHash, slotHash)
@@ -208,14 +236,30 @@ func (l *lookup) addLayer(diff *diffLayer) {
 				l.storages[key] = list
 			}
 		}
+		storageTime = time.Since(st)
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		st := time.Now()
 		l.addNodes(state, diff.nodes.accountNodes, diff.nodes.storageNodes)
+		trieTime = time.Since(st)
 	}()
 	wg.Wait()
+
+	storages1 := 0
+	for _, slots := range diff.states.storageData {
+		storages1 += len(slots)
+	}
+	storages2 := 0
+	for _, slots := range diff.nodes.storageNodes {
+		storages2 += len(slots)
+	}
+	log.Info("PathDB lookup add layer", "id", diff.id, "block", diff.block, "accountTime", accountTime, "storageTime", storageTime, "trieTime", trieTime, "elapsed", time.Since(st),
+		"accounts", len(diff.states.accountData), "storages-keys", len(diff.states.storageData), "storages-slots", storages1,
+		"accounts-trie", len(diff.nodes.accountNodes), "storages-trie-keys", len(diff.nodes.storageNodes), "storages-trie-slots", storages2,
+	)
 }
 
 func (l *lookup) addNodes(state common.Hash, accountNodes map[string]*trienode.Node, storageNodes map[common.Hash]map[string]*trienode.Node) {

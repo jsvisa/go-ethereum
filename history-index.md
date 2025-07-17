@@ -34,6 +34,55 @@ A "history ID" is a unique, monotonically increasing identifier for each state c
 
 **Every time a new block is committed** (i.e., finalized and written to the database), the state changes for that block are recorded as a new state history, and a new history ID is assigned.
 
+3. **Why not use block numbers directly?**
+
+- Block numbers are generated from genesis block, while history IDs can be generated from any point in the chain.
+- Record StateRoot to history ID mapping, so that we can find the state at a specific history ID.
+
+## **Ancient State Store**
+
+### 1. What's the data structure of a history item?
+
+```go
+type history struct {
+    meta        *meta                                     // Meta data of history
+    accounts    map[common.Address][]byte                 // Account data keyed by its address hash
+    accountList []common.Address                          // Sorted account hash list
+    storages    map[common.Address]map[common.Hash][]byte // Storage data keyed by its address hash and slot hash
+    storageList map[common.Address][]common.Hash          // Sorted slot hash list
+}
+```
+
+A **history item** (state history object) contains the below fields:
+
+- **meta**: Contains metadata (version, parent state root, state root, block number).
+- **accounts**: Map of account address → account data.
+- **accountList**: Sorted list of account addresses (for deterministic order).
+- **storages**: Map of account address → (map of storage slot → slot data).
+- **storageList**: Sorted list of storage slots per account.
+
+### 2. How is the data stored on disk?
+
+When a history item is written (see `writeHistory`), it is encoded and stored in the ancient (freezer) database as **five separate tables**:
+
+- **meta**: Metadata for the history object.
+- **account index**: Fixed-size(33 bytes) index entries for each account, sorted, each entry contains:
+  - account address hash(20 bytes)
+  - length of the account data blob(1 byte)
+  - offset in the account data blob(4 bytes)
+  - offset of storage index in storage index table(4 bytes)
+  - number of mutated storage slots belonging to the account(4 byte)
+- **storage index**: Fixed-size(37 bytes) index entries for each storage slot, sorted, each entry contains:
+  - storage slot key(32 bytes)
+  - length of the storage data blob(1 byte)
+  - offset in the storage data blob(4 bytes)
+- **account data**: Concatenated account data blobs, RLP encoded of the account state.
+- **storage data**: Concatenated storage slot data blobs, RLP encoded of the **storage slot values**.
+
+Those tables can be retrieved by their history ID, which is a unique identifier for each history item.
+
+### 3. How to read a history item?
+
 ## **Index Data Structure and Storage**
 
 ### `indexWriter`
@@ -325,8 +374,9 @@ both persisted to the database under keys derived from the state identifier.
 ### Deleting
 
 - `indexDeleter` removes the most recent history IDs, deleting empty blocks and updating metadata as needed.
+- It deletes the rollbacked history IDs only, for the old not used indexs(older than `--history.state`), it will not delete them immediately.
 
-## **What is the History Index Reader?**
+## **History Index Reader?**
 
 The **history index reader** is a component that allows you to efficiently look up the history of state changes (history IDs) for a specific account or storage slot.
 It is designed to answer queries like:
@@ -345,39 +395,41 @@ type historyReader struct {
 }
 ```
 
-- The **disk** database (for index metadata and blocks).
-- The **freezer** (for ancient state data).
+- The **disk** database (where the index metadata and blocks were stored).
+- The **freezer** (where the raw state data were stored).
 - A cache of `indexReaderWithLimitTag` objects for fast repeated access.
 
-### 2. **`indexReaderWithLimitTag`**
+### **`indexReaderWithLimitTag`**
+
+```go
+type indexReaderWithLimitTag struct {
+    reader *indexReader
+    limit  uint64
+    db     ethdb.KeyValueReader
+}
+```
 
 - Wraps an `indexReader` and tracks the highest history ID that is currently indexed (for consistency with the current state of the index).
 - Ensures you don’t read beyond what’s actually indexed.
 
-### 3. **`indexReader`**
+### **`indexReader`**
 
-- The core object that:
-  - Loads the list of `indexBlockDesc` for a state element.
-  - Loads and caches index blocks as needed.
-  - Can efficiently search for the next history ID greater than a given value.
+```go
+type indexReader struct {
+    db       ethdb.KeyValueReader
+    descList []*indexBlockDesc
+    readers  map[uint32]*blockReader
+    state    stateIdent
+}
+```
 
----
+The `indexReader` is a core object to read the history index records associated with a specific state element (account or storage slot).
 
-## **How Does It Work?**
+The core responsibilities of the `indexReader` include:
 
-### **Construction**
-
-- When you create a `historyReader`:
-  ```go
-  func newHistoryReader(disk ethdb.KeyValueReader, freezer ethdb.AncientReader) *historyReader {
-      return &historyReader{
-          disk:    disk,
-          freezer: freezer,
-          readers: make(map[string]*indexReaderWithLimitTag),
-      }
-  }
-  ```
-- It’s ready to serve queries for any account or storage slot.
+- Loads the list of `indexBlockDesc` for a state element.
+- Loads and caches index blocks as needed.
+- Can efficiently search for the next history ID greater than a given value.
 
 ### **Querying**
 
@@ -385,14 +437,7 @@ type historyReader struct {
   1. The reader loads (or reuses) the `indexReaderWithLimitTag` for that state.
   2. The `indexReader` loads the metadata (`descList`) and relevant index blocks from disk as needed.
   3. It uses binary search and restart points to efficiently find the next history ID after a given value.
-
-### **Efficiency**
-
-- The design is highly efficient for lookups, even if an account or storage slot has a long history, because:
-  - The metadata allows quick narrowing down to the right block.
-  - The block format allows fast seeking within the block.
-
----
+  4. Read the history ID from the freezer to get the actual state at that history ID.
 
 ## **Summary Table**
 
@@ -401,9 +446,3 @@ type historyReader struct {
 | `historyReader`           | Top-level reader, manages cache and access to DB/freezer |
 | `indexReaderWithLimitTag` | Wraps `indexReader`, tracks highest indexed history ID   |
 | `indexReader`             | Loads metadata/blocks, performs efficient lookups        |
-
----
-
-**In short:**
-
-> The history index reader is a layered, efficient lookup tool that allows you to quickly find state change history for any account or storage slot, using the indexed metadata and blocks stored on disk.

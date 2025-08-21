@@ -140,6 +140,10 @@ func (t *prevalueTracer) values() [][]byte {
 	return slices.Collect(maps.Values(t.data))
 }
 
+func (t *prevalueTracer) keys() []string {
+	return slices.Collect(maps.Keys(t.data))
+}
+
 // reset resets the cached content in the prevalueTracer.
 func (t *prevalueTracer) reset() {
 	clear(t.data)

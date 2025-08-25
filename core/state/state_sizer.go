@@ -522,6 +522,7 @@ func (t *SizeTracker) Notify(update *stateUpdate) {
 	if update == nil || update.empty() {
 		return
 	}
+	log.Info("State size Notify", "root", update.root.Hex(), "origin", update.originRoot.Hex(), "block", update.blockNumber)
 	select {
 	case t.updateCh <- update:
 	case <-t.abort:

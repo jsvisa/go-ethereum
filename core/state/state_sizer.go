@@ -305,10 +305,12 @@ func (t *SizeTracker) run() {
 		case u := <-t.updateCh:
 			base, found := stats[u.originRoot]
 			if !found {
+				log.Warn("Can't find the base state by root", "origin", u.originRoot.Hex(), "root", u.root.Hex())
 				continue
 			}
 			diff, err := calSizeStats(u)
 			if err != nil {
+				log.Warn("Calculate size error", "err", err)
 				continue
 			}
 			stat := base.add(diff)

@@ -230,14 +230,31 @@ func (s *stateSet) merge(other *stateSet) {
 		delta             int
 		accountOverwrites counter
 		storageOverwrites counter
+		// Debug counters
+		accountInserts = 0
+		accountUpdates = 0
+		accountDeletes = 0
+		storageInserts = 0
+		storageUpdates = 0
+		storageDeletes = 0
 	)
 	// Apply the updated account data
 	for accountHash, data := range other.accountData {
 		if origin, ok := s.accountData[accountHash]; ok {
 			delta += len(data) - len(origin)
 			accountOverwrites.add(common.HashLength + len(origin))
+			if len(data) == 0 {
+				accountDeletes++
+			} else {
+				accountUpdates++
+			}
 		} else {
 			delta += common.HashLength + len(data)
+			if len(data) == 0 {
+				accountDeletes++
+			} else {
+				accountInserts++
+			}
 		}
 		s.accountData[accountHash] = data
 	}
@@ -254,6 +271,11 @@ func (s *stateSet) merge(other *stateSet) {
 			for storageHash, data := range storage {
 				slots[storageHash] = data
 				delta += 2*common.HashLength + len(data)
+				if len(data) == 0 {
+					storageDeletes++
+				} else {
+					storageInserts++
+				}
 			}
 			s.storageData[accountHash] = slots
 			continue
@@ -264,14 +286,34 @@ func (s *stateSet) merge(other *stateSet) {
 			if origin, ok := slots[storageHash]; ok {
 				delta += len(data) - len(origin)
 				storageOverwrites.add(2*common.HashLength + len(origin))
+				if len(data) == 0 {
+					storageDeletes++
+				} else {
+					storageUpdates++
+				}
 			} else {
 				delta += 2*common.HashLength + len(data)
+				if len(data) == 0 {
+					storageDeletes++
+				} else {
+					storageInserts++
+				}
 			}
 			slots[storageHash] = data
 		}
 	}
 	accountOverwrites.report(gcAccountMeter, gcAccountBytesMeter)
 	storageOverwrites.report(gcStorageMeter, gcStorageBytesMeter)
+
+	// Debug logging: Print state update statistics
+	log.Info("DDDD/StateSet merge statistics",
+		"account_inserts", accountInserts,
+		"account_updates", accountUpdates,
+		"account_deletes", accountDeletes,
+		"storage_inserts", storageInserts,
+		"storage_updates", storageUpdates,
+		"storage_deletes", storageDeletes)
+
 	s.clearLists()
 	s.updateSize(delta)
 }

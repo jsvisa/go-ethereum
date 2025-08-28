@@ -230,7 +230,7 @@ type Database struct {
 	forceFlush bool         // Flag to force buffer flush regardless of size
 }
 
-// New attempts to load an already existing layer from a persistent key-value
+// New attempts to load a pre-existing database from the persistent key-value
 // store (with a number of memory layers from a journal). If the journal is not
 // matched with the base persistent layer, all the recorded diff layers are discarded.
 func New(diskdb ethdb.Database, config *Config, isVerkle bool) *Database {
@@ -423,6 +423,68 @@ func (db *Database) Update(root common.Hash, parentRoot common.Hash, block uint6
 	if err := db.modifyAllowed(); err != nil {
 		return err
 	}
+
+	// Debug logging for state update statistics
+	if nodes != nil {
+		log.Debug("State update - trie nodes", "block", block, "root", root.Hex()[:8], "parentRoot", parentRoot.Hex()[:8], "sets", len(nodes.Sets))
+		for owner, set := range nodes.Sets {
+			log.Debug("State update - node set", "block", block, "owner", owner.Hex()[:8], "nodes", len(set.Nodes), "leaves", len(set.Leaves))
+		}
+	}
+	if states != nil {
+		accountStats := map[string]int{"created": 0, "updated": 0, "deleted": 0}
+		storageStats := map[string]int{"created": 0, "updated": 0, "deleted": 0}
+
+		// Count account changes
+		for hash, data := range states.stateSet.accountData {
+			if len(data) == 0 {
+				accountStats["deleted"]++
+			} else {
+				// Check if account existed before (has origin data)
+				var hasOrigin bool
+				for addr, origin := range states.accountOrigin {
+					if crypto.Keccak256Hash(addr[:]) == hash {
+						hasOrigin = len(origin) > 0
+						break
+					}
+				}
+				if hasOrigin {
+					accountStats["updated"]++
+				} else {
+					accountStats["created"]++
+				}
+			}
+		}
+
+		// Count storage changes
+		for accountHash, slots := range states.stateSet.storageData {
+			for slotHash, data := range slots {
+				if len(data) == 0 {
+					storageStats["deleted"]++
+				} else {
+					// Check if slot existed before (has origin data)
+					var hasOrigin bool
+					for addr, storageOrigin := range states.storageOrigin {
+						if crypto.Keccak256Hash(addr[:]) == accountHash {
+							if origin, exists := storageOrigin[slotHash]; exists && len(origin) > 0 {
+								hasOrigin = true
+							}
+							break
+						}
+					}
+					if hasOrigin {
+						storageStats["updated"]++
+					} else {
+						storageStats["created"]++
+					}
+				}
+			}
+		}
+
+		log.Debug("State update - accounts", "block", block, "created", accountStats["created"], "updated", accountStats["updated"], "deleted", accountStats["deleted"])
+		log.Debug("State update - storage", "block", block, "created", storageStats["created"], "updated", storageStats["updated"], "deleted", storageStats["deleted"])
+	}
+
 	if err := db.tree.add(root, parentRoot, block, nodes, states); err != nil {
 		return err
 	}

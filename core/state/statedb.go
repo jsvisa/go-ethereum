@@ -1386,6 +1386,12 @@ func (s *StateDB) CommitWithUpdate(block uint64, deleteEmptyObjects bool, noStor
 	if err != nil {
 		return common.Hash{}, nil, err
 	}
+	stat, err := calSizeStats(ret)
+	if err != nil {
+		log.Error("DDDD/CommitWithUpdate failed to calculate size stats", "root", ret.root.Hex(), "block", block, "err", err)
+	} else {
+		log.Info("DDDD/CommitWithUpdate", "root", ret.root.Hex(), "block", block, "origin", ret.originRoot.Hex(), "stats", stat.String())
+	}
 	return ret.root, ret, nil
 }
 

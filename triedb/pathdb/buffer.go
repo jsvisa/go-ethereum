@@ -82,6 +82,42 @@ func (b *buffer) node(owner common.Hash, path []byte) (*trienode.Node, bool) {
 // commit merges the provided states and trie nodes into the buffer.
 func (b *buffer) commit(nodes *nodeSet, states *stateSet) *buffer {
 	b.layers++
+
+	// Debug logging: Print storage trienode statistics before merging
+	var (
+		accountNodesAdded    = len(nodes.accountNodes)
+		storageNodesAdded    = 0
+		storageNodesDeleted  = 0
+		storageNodesModified = 0
+	)
+
+	// Count storage nodes operations
+	for owner, subset := range nodes.storageNodes {
+		for path, node := range subset {
+			if node.Blob == nil {
+				storageNodesDeleted++
+			} else {
+				// Check if this is an update or insert by looking in existing buffer
+				if existing, exists := b.nodes.storageNodes[owner]; exists {
+					if _, found := existing[path]; found {
+						storageNodesModified++
+					} else {
+						storageNodesAdded++
+					}
+				} else {
+					storageNodesAdded++
+				}
+			}
+		}
+	}
+
+	log.Info("DDDD/DiffLayer merge to buffer",
+		"layer", b.layers,
+		"account_nodes_added", accountNodesAdded,
+		"storage_nodes_added", storageNodesAdded,
+		"storage_nodes_modified", storageNodesModified,
+		"storage_nodes_deleted", storageNodesDeleted)
+
 	b.nodes.merge(nodes)
 	b.states.merge(states)
 	return b
@@ -171,6 +207,96 @@ func (b *buffer) flush(root common.Hash, db ethdb.KeyValueStore, freezer ethdb.A
 				return
 			}
 		}
+
+		// Debug logging: Count operations before flush
+		var (
+			accountDeletes = 0
+			accountInserts = 0
+			accountUpdates = 0
+			storageDeletes = 0
+			storageInserts = 0
+			storageUpdates = 0
+			nodeDeletes    = 0
+			nodeInserts    = 0
+			nodeUpdates    = 0
+		)
+
+		// Count account operations
+		for hash, data := range b.states.accountData {
+			if len(data) == 0 {
+				accountDeletes++
+			} else {
+				// Check if account exists on disk to distinguish insert vs update
+				existing := rawdb.ReadAccountSnapshot(db, hash)
+				if len(existing) == 0 {
+					accountInserts++
+				} else {
+					accountUpdates++
+				}
+			}
+		}
+
+		// Count storage operations
+		for accountHash, storages := range b.states.storageData {
+			for storageHash, data := range storages {
+				if len(data) == 0 {
+					storageDeletes++
+				} else {
+					// Check if storage slot exists on disk to distinguish insert vs update
+					existing := rawdb.ReadStorageSnapshot(db, accountHash, storageHash)
+					if len(existing) == 0 {
+						storageInserts++
+					} else {
+						storageUpdates++
+					}
+				}
+			}
+		}
+
+		// Count trie node operations
+		// Account trie nodes
+		for path, node := range b.nodes.accountNodes {
+			if node.IsDeleted() {
+				nodeDeletes++
+			} else {
+				// Check if account trie node exists on disk
+				existing := rawdb.ReadAccountTrieNode(db, []byte(path))
+				if len(existing) == 0 {
+					nodeInserts++
+				} else {
+					nodeUpdates++
+				}
+			}
+		}
+
+		// Storage trie nodes
+		for owner, nodes := range b.nodes.storageNodes {
+			for path, node := range nodes {
+				if node.IsDeleted() {
+					nodeDeletes++
+				} else {
+					// Check if storage trie node exists on disk
+					existing := rawdb.ReadStorageTrieNode(db, owner, []byte(path))
+					if len(existing) == 0 {
+						nodeInserts++
+					} else {
+						nodeUpdates++
+					}
+				}
+			}
+		}
+
+		log.Info("DDDD/Buffer flush operations", "id", id, "layers", b.layers,
+			"account_deletes", accountDeletes,
+			"account_inserts", accountInserts,
+			"account_updates", accountUpdates,
+			"storage_deletes", storageDeletes,
+			"storage_inserts", storageInserts,
+			"storage_updates", storageUpdates,
+			"node_deletes", nodeDeletes,
+			"node_inserts", nodeInserts,
+			"node_updates", nodeUpdates)
+
 		nodes := b.nodes.write(batch, nodesCache)
 		accounts, slots := b.states.write(batch, progress, statesCache)
 		rawdb.WritePersistentStateID(batch, id)
